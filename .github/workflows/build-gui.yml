@@ -54,14 +54,14 @@ jobs:
       # (o GH_TOKEN do workflow vira o GH_TOKEN que o electron-builder usa).
       # No canal beta a release nasce como draft; beta-marcar aplica a classificação
       # PRERELEASE depois que Windows e Linux terminarem — nunca vira "latest".
-      - run: npm run publish:win
+      - run: npm run publish:win -- --config.publish.owner=${{ github.repository_owner }} --config.publish.repo=${{ github.event.repository.name }}
         if: ${{ inputs.canal != 'beta' }}
         working-directory: golive-gui
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # O nome beta do metadata depende do channel explicito. releaseType sozinho
       # marca a release, mas deixa o electron-builder escrever latest.yml.
-      - run: npm run publish:win -- --config.publish.channel=beta --config.publish.releaseType=prerelease
+      - run: npm run publish:win -- --config.publish.owner=${{ github.repository_owner }} --config.publish.repo=${{ github.event.repository.name }} --config.publish.channel=beta --config.publish.releaseType=prerelease
         if: ${{ inputs.canal == 'beta' }}
         working-directory: golive-gui
         env:
@@ -85,12 +85,12 @@ jobs:
       # No canal beta publica AppImage + beta.yml. O channel precisa ser explicito:
       # uma versao com sufixo beta e releaseType prerelease, sozinha, ainda gera
       # latest.yml e deixa o canal estavel enxergar metadata de teste.
-      - run: npm run publish:linux
+      - run: npm run publish:linux -- --config.publish.owner=${{ github.repository_owner }} --config.publish.repo=${{ github.event.repository.name }}
         if: ${{ inputs.canal != 'beta' }}
         working-directory: golive-gui
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - run: npm run publish:linux -- --config.publish.channel=beta --config.publish.releaseType=prerelease
+      - run: npm run publish:linux -- --config.publish.owner=${{ github.repository_owner }} --config.publish.repo=${{ github.event.repository.name }} --config.publish.channel=beta --config.publish.releaseType=prerelease
         if: ${{ inputs.canal == 'beta' }}
         working-directory: golive-gui
         env:
@@ -153,6 +153,7 @@ jobs:
       - name: Upload dos helpers Proton
         uses: softprops/action-gh-release@v2
         with:
+          repository: ${{ github.repository }}
           tag_name: ${{ inputs.tag }}
           draft: ${{ inputs.rascunho || inputs.canal == 'beta' }}
           files: |
@@ -183,7 +184,7 @@ jobs:
         working-directory: golive-gui
       # Com CSC_LINK/CSC_KEY_PASSWORD o electron-builder assina o app; sem eles, builda
       # sem assinatura (auto-update do Mac so funciona com app assinado).
-      - run: npm run publish:mac
+      - run: npm run publish:mac -- --config.publish.owner=${{ github.repository_owner }} --config.publish.repo=${{ github.event.repository.name }}
         working-directory: golive-gui
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -253,6 +254,7 @@ jobs:
       - name: Upload dos assets para a release
         uses: softprops/action-gh-release@v2
         with:
+          repository: ${{ github.repository }}
           tag_name: "${{ inputs.tag }}"
           draft: ${{ inputs.rascunho || inputs.canal == 'beta' }}
           files: |
@@ -274,9 +276,11 @@ jobs:
       - name: Marcar prerelease e escrever a linha do canal
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.tag }}
         run: |
-          gh release edit "${{ inputs.tag }}" \
-            --repo bezumiya/GoLiveBypass \
+          gh release edit "$RELEASE_TAG" \
+            --repo "$RELEASE_REPOSITORY" \
             --prerelease \
             --draft=false \
             --title "GoLiveBypass ${{ inputs.tag }}" \
