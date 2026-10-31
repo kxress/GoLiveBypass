@@ -6,6 +6,10 @@ segue [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+### Build de teste
+
+- **`2.0.14-beta-win10-1` — build de diagnóstico para Windows 10.** Inclui a correção dos argumentos do instalador WireSock e coleta de diagnóstico em falhas. Esta build beta é destinada à validação no fork `kxress/GoLiveBypass`; não representa compatibilidade com Windows 10 confirmada.
+
 ### Corrigido
 
 - **Compatibilidade da instalação WireSock no Windows.** A GUI e o plugin agora usam `/S /NCRC`, os argumentos silenciosos do instalador 3.4.8.1, em instalação, reparo e desinstalação. Falhas preservam o instalador baixado, `installer.log` e `diagnostic.json` no diretório temporário indicado no log, com código de saída, stderr do PowerShell, build do Windows e resultado da elevação solicitada. A API do Windows não confirma se a tela visual do UAC apareceu; esse detalhe fica marcado como indeterminado. Os diagnósticos não incluem perfil WireGuard nem credenciais. A regressão cobre os argumentos exatos; a correção ainda precisa de instalação limpa e ativação real no Windows, em especial no Windows 10.
