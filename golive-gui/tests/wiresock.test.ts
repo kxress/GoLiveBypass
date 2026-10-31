@@ -3,7 +3,7 @@ import { elevatedPowerShellFileArgs, wireSockCleanupScript, wireSockDirectScript
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { classifyWireSockActivationFailure, classifyWireSockDirectResult, findWireSockInKnownRoots, formatAllowedApps, hasWireSockAdapterTrafficIncrease, mayUseServiceCompatibility, parseWireSockCliExternalAddress, parseWireSockCliStatus, readWireSockResult, unwrapPowerShellErrorStream, verifyWindowsNetworkStable, wireSockDriverQueryShowsInstalled, wireSockExecError, wireSockInstallerExitKind, wireSockSearchRoots } from "../electron/wiresock";
+import { classifyWireSockActivationFailure, classifyWireSockDirectResult, findWireSockInKnownRoots, formatAllowedApps, hasWireSockAdapterTrafficIncrease, mayUseServiceCompatibility, parseWireSockCliExternalAddress, parseWireSockCliStatus, readWireSockResult, unwrapPowerShellErrorStream, verifyWindowsNetworkStable, wireSockDriverQueryShowsInstalled, wireSockExecError, wireSockInstallerArguments, wireSockInstallerExitKind, wireSockSearchRoots } from "../electron/wiresock";
 
 describe("WireSock no Windows", () => {
   it("preserva caminhos Unicode nos arquivos usados pelo Windows PowerShell 5.1", () => {
@@ -299,8 +299,13 @@ describe("WireSock no Windows", () => {
   it("usa instalador oficial fixado quando não há par compatível", () => {
     const src = fs.readFileSync(path.resolve(process.cwd(), "electron/wiresock.ts"), "utf8");
     expect(src).toContain("wiresock.net/_api/download-release.php");
-    expect(src).toContain("/quiet");
-    expect(src).toContain("/norestart");
+    expect(wireSockInstallerArguments("install")).toEqual(["/S", "/NCRC"]);
+    expect(wireSockInstallerArguments("uninstall")).toEqual(["/uninstall", "/S", "/NCRC"]);
+    expect(wireSockInstallerArguments("repair")).toEqual(["/repair", "/S", "/NCRC"]);
+    const pluginSrc = fs.readFileSync(path.resolve(process.cwd(), "../goLiveBypass/vpn-windows.ts"), "utf8");
+    expect(pluginSrc).toContain('install: ["/S", "/NCRC"]');
+    expect(pluginSrc).toContain('uninstall: ["/uninstall", "/S", "/NCRC"]');
+    expect(pluginSrc).toContain('repair: ["/repair", "/S", "/NCRC"]');
     expect(src).toContain("abfeebdc645de36b95fabbed00c7fdb0bf4d0c68c5518608450619c61876d33e");
   });
 

@@ -31,6 +31,7 @@ const WIRESOCK_INSTALLER_HASHES: Record<string, string> = {
   x86: "53c8b434482043b2eb734d05595fb357ce87460dc60f49c79f57011d655539b0",
   arm64: "62f641a19c2d4a89ce58ba4c0539166982fb89373aef3c87b66fea33e26db311",
 };
+let wireSockInstallerElevationResult = "not_requested";
 const WIRESOCK_SERVICE_NAMES = ["wiresock-client-service", "wiresock-pro-client-service"] as const;
 // O SDK 3.4.x instala o filtro WireGuard como serviço de kernel `ndiswgc` (medido
 // no Windows 11 com o 3.4.8.1: `sc query ndiswgc` responde KERNEL_DRIVER RUNNING e
@@ -220,13 +221,12 @@ export function wireSockInstallerExitKind(error: unknown): "reboot" | "cancel" |
   return "failure";
 }
 
-// Modos do setup oficial. `uninstall` e `repair` sao os proprios switches de
-// manutencao do instalador: sao eles que resolvem a instalacao que o /quiet
-// sozinho deixa pela metade.
+// O setup oficial usa os switches silenciosos /S /NCRC; uninstall e repair
+// continuam sendo os switches de manutencao do instalador.
 const WIRESOCK_INSTALLER_ARGUMENTS = {
-  install: ["/quiet", "/norestart"],
-  uninstall: ["/uninstall", "/quiet", "/norestart"],
-  repair: ["/repair", "/quiet", "/norestart"],
+  install: ["/S", "/NCRC"],
+  uninstall: ["/uninstall", "/S", "/NCRC"],
+  repair: ["/repair", "/S", "/NCRC"],
 } as const;
 export type WireSockInstallerMode = keyof typeof WIRESOCK_INSTALLER_ARGUMENTS;
 
@@ -371,6 +371,12 @@ function wireSockPlatform(): { hash: keyof typeof WIRESOCK_INSTALLER_HASHES; que
   throw new Error(`Arquitetura Windows não suportada para WireSock: ${process.arch}`);
 }
 
+function windowsBuildDiagnostic(): string {
+  try {
+    return execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", "$v=Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion'; \"$($v.ProductName) build $($v.CurrentBuildNumber).$($v.UBR)\""], { encoding: "utf8", windowsHide: true, timeout: 5000 }).trim().slice(0, 200);
+  } catch { return os.release(); }
+}
+
 function downloadOfficialWireSock(platform: "x64" | "x86" | "ARM64", target: string): Promise<void> {
   const start = WIRESOCK_OFFICIAL_DOWNLOAD.replace("{platform}", platform);
   const maxBytes = 512 * 1024 * 1024;
@@ -411,7 +417,7 @@ function downloadOfficialWireSock(platform: "x64" | "x86" | "ARM64", target: str
  * Executa o setup oficial no modo pedido e traduz a saida. Um `error.code`
  * numerico preserva a classificacao de reboot/cancelamento usada acima.
  *
- * O setup nunca fica sem teto: medido no Windows 11, `/quiet` sobre uma
+ * O setup nunca fica sem teto: medido no Windows 11, modo silencioso sobre uma
  * instalacao registrada devolve 0 em 3 s sem instalar nada, e um setup que
  * espera interacao fica preso para sempre. O arvore e morta no estouro, senao
  * um instalador vivo continuaria escrevendo no WireSock depois do app desistir.
@@ -423,10 +429,14 @@ function runWireSockInstaller(
 ): Promise<void> {
   const file = installer.replace(/'/g, "''");
   const argumentsLiteral = wireSockInstallerArguments(mode).map((value) => `'${value.replace(/'/g, "''")}'`).join(",");
-  const command = `try { $p=Start-Process -FilePath '${file}' -ArgumentList @(${argumentsLiteral}) -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ErrorAction Stop; if($null -eq $p){ exit 1223 }; exit [int]$p.ExitCode } catch { $c=$_.Exception.HResult; if($c -eq -2147023673 -or $_.Exception.NativeErrorCode -eq 1223){ exit 1223 }; Write-Error $_; exit 1 }`;
+  const command = `try { $p=Start-Process -FilePath '${file}' -ArgumentList @(${argumentsLiteral}) -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ErrorAction Stop; if($null -eq $p){ Write-Output 'GOLIVE_ELEVATION_CANCELED'; exit 1223 }; Write-Output 'GOLIVE_ELEVATION_ACCEPTED'; exit [int]$p.ExitCode } catch { $c=$_.Exception.HResult; if($c -eq -2147023673 -or $_.Exception.NativeErrorCode -eq 1223){ Write-Output 'GOLIVE_ELEVATION_CANCELED'; exit 1223 }; Write-Error $_; exit 1 }`;
+  wireSockInstallerElevationResult = "elevation_requested_result_unknown";
   return new Promise<void>((resolve, reject) => {
-    const child = execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command], { windowsHide: true, timeout: timeoutMs }, (error) => {
+    const child = execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command], { windowsHide: true, timeout: timeoutMs }, (error, stdout, stderr) => {
+      if (String(stdout ?? "").includes("GOLIVE_ELEVATION_ACCEPTED")) wireSockInstallerElevationResult = "elevation_accepted";
+      if (String(stdout ?? "").includes("GOLIVE_ELEVATION_CANCELED")) wireSockInstallerElevationResult = "elevation_canceled";
       if (!error) { resolve(); return; }
+      Object.assign(error, { stdout: String(stdout ?? ""), stderr: unwrapPowerShellErrorStream(stderr) });
       if ((error as { killed?: boolean }).killed) {
         try { execFileSync("taskkill.exe", ["/F", "/T", "/PID", String(child.pid)], { stdio: "ignore", windowsHide: true }); } catch {}
         reject(new Error(`O instalador WireSock (modo ${mode}) não terminou em ${Math.round(timeoutMs / 1000)} s e foi encerrado.`));
@@ -549,6 +559,8 @@ async function installOfficialWireSock(onProgress?: (message: string) => void): 
   const platform = wireSockPlatform();
   const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "golive-wiresock-"));
   const installer = path.join(tempDir, "wiresock-sdk.exe");
+  let installationSucceeded = false;
+  let preserveDiagnostics = false;
   try {
     onProgress?.("Baixando o instalador oficial do WireSock…");
     await downloadOfficialWireSock(platform.query, installer);
@@ -595,6 +607,7 @@ async function installOfficialWireSock(onProgress?: (message: string) => void): 
       selected = await waitForCompatibleWireSock(WIRESOCK_SETTLE_TIMEOUT_MS);
     }
     if (!selected) throw new Error("O instalador oficial terminou, mas não deixou um par WireSock SDK compatível.");
+    installationSucceeded = true;
     return selected;
   } catch (error) {
     const installError = wireSockInstallModeError(error, "install");
@@ -608,11 +621,31 @@ async function installOfficialWireSock(onProgress?: (message: string) => void): 
       // saida diz se o Windows voltou a navegar, e e ela que vai no popup.
       const network = restore.executed ? await verifyWindowsNetworkStable().catch(() => undefined) : undefined;
       const hint = wireSockInstallFailureHint(restore, network);
-      throw new Error(detalheErro(installError) + (hint ? ` ${hint}` : ""));
+      const diagnostic = {
+        mode: "install",
+        exitCode: Number.isFinite(Number((installError as { code?: unknown })?.code)) ? Number((installError as { code?: unknown }).code) : null,
+        windowsBuild: windowsBuildDiagnostic(),
+        installer: fs.existsSync(installer) ? installer : null,
+        powershellStderr: String((installError as { stderr?: unknown })?.stderr ?? "").slice(0, 4000),
+        elevationResult: wireSockInstallerElevationResult,
+      };
+      const installerLog = [
+        `exitCode=${diagnostic.exitCode ?? "unknown"}`,
+        `elevation=${diagnostic.elevationResult}`,
+        `stdout=${String((installError as { stdout?: unknown })?.stdout ?? "").slice(0, 20000)}`,
+        `stderr=${diagnostic.powershellStderr}`,
+      ].join("\n");
+      try { await fs.promises.writeFile(path.join(tempDir, "installer.log"), installerLog, "utf8"); } catch {}
+      try { await fs.promises.writeFile(path.join(tempDir, "diagnostic.json"), JSON.stringify(diagnostic, null, 2), "utf8"); } catch {}
+      preserveDiagnostics = true;
+      logger.error("wiresock", "diagnostico de falha da instalacao preservado", { ...diagnostic, temporaryDirectory: tempDir });
+      throw new Error(detalheErro(installError) + ` Diagnóstico salvo em ${tempDir}.` + (hint ? ` ${hint}` : ""));
     }
     throw installError;
   } finally {
-    try { await fs.promises.rm(tempDir, { recursive: true, force: true }); } catch {}
+    if (installationSucceeded || !preserveDiagnostics) {
+      try { await fs.promises.rm(tempDir, { recursive: true, force: true }); } catch {}
+    }
   }
 }
 

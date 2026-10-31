@@ -6,6 +6,10 @@ segue [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+### Corrigido
+
+- **Compatibilidade da instalação WireSock no Windows.** A GUI e o plugin agora usam `/S /NCRC`, os argumentos silenciosos do instalador 3.4.8.1, em instalação, reparo e desinstalação. Falhas preservam o instalador baixado, `installer.log` e `diagnostic.json` no diretório temporário indicado no log, com código de saída, stderr do PowerShell, build do Windows e resultado da elevação solicitada. A API do Windows não confirma se a tela visual do UAC apareceu; esse detalhe fica marcado como indeterminado. Os diagnósticos não incluem perfil WireGuard nem credenciais. A regressão cobre os argumentos exatos; a correção ainda precisa de instalação limpa e ativação real no Windows, em especial no Windows 10.
+
 ### Adicionado
 
 - **Experimento (desligado por padrão): abrir o Discord com `--disable-quic` no Windows.** Para separar uma das hipóteses do envio de arquivo que "carrega e some" (#368, #369, #370, #373), que aparece em rotas do México e some ao trocar de rota enquanto o log do WireSock mostra o túnel saudável. Com `"experimentalDesativarQuic": true` no `settings.json` (`%LOCALAPPDATA%\GoLiveBypass\settings.json`), a GUI passa `--disable-quic` ao Discord em toda abertura (ativação, troca de rota, reinício), forçando HTTP/2 sobre TCP em vez de HTTP/3 sobre UDP. Sem a chave, o Discord abre exatamente como antes. A lista de argumentos é fechada: só esse parâmetro, e só com o valor booleano `true` (nem `"true"`, nem `1`); nenhuma outra chave do `settings.json` vira argumento. O relatório ganha `discord_quic` (`padrao` ou `desativado_experimental`) para saber em qual condição cada relato foi gerado. Não é uma correção: é um teste para quem reproduz o travamento. Só vale onde a GUI abre o Discord pelo executável (Windows).
@@ -20,6 +24,8 @@ segue [Semantic Versioning](https://semver.org/lang/pt-BR/).
 - **Menos ruído no log, para o relatório não ser cortado no meio.** A varredura de pastas do Discord (`scan.inicio`, `scan.raiz`, `scan.candidato`, `scan.install`, `scan.resultado`) e o `running.tasklist` repetiam a mesma foto do disco a cada leitura de status: no relatório #370, 481 das 571 linhas (84%) eram isso, o limite de tamanho cortou o miolo da sessão (a troca de rota) e o aviso de `wg.exe` indisponível aparecia a cada 45 s. Cada linha idêntica agora só é registrada de novo depois de 10 minutos (o que mantém uma varredura recente em todo relatório), e o aviso de estatística indisponível sai no máximo a cada 10 minutos. Se algo muda (um install novo, outro total), a linha nova entra na hora.
 
 ## [2.0.12] - 2026-10-18
+
+> Nota retrospectiva: as medições abaixo reproduzem os argumentos então usados (`/quiet /norestart`). O manifesto oficial do WireSock 3.4.8.1 usa `/S /NCRC`; portanto, os resultados documentam o comportamento daquela invocação incorreta e não validam os switches oficiais. A correção está registrada em Unreleased.
 
 ### Corrigido
 

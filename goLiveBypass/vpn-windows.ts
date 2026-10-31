@@ -583,28 +583,39 @@ function sha256(file: string): string {
     return crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 }
 
-// Modos do setup oficial: `uninstall` e `repair` sao os proprios switches de manutencao
-// do instalador e sao o que resolve a instalacao que o /quiet sozinho deixa pela metade.
+// O setup oficial usa /S /NCRC para modo silencioso; uninstall e repair seguem
+// como switches próprios de manutenção do instalador.
 const WIRESOCK_INSTALLER_ARGUMENTS = {
-    install: ["/quiet", "/norestart"],
-    uninstall: ["/uninstall", "/quiet", "/norestart"],
-    repair: ["/repair", "/quiet", "/norestart"],
+    install: ["/S", "/NCRC"],
+    uninstall: ["/uninstall", "/S", "/NCRC"],
+    repair: ["/repair", "/S", "/NCRC"],
 } as const;
+let wireSockInstallerElevationResult = "not_requested";
 export type WireSockInstallerMode = keyof typeof WIRESOCK_INSTALLER_ARGUMENTS;
 
 export function wireSockInstallerArguments(mode: WireSockInstallerMode): string[] {
     return [...WIRESOCK_INSTALLER_ARGUMENTS[mode]];
 }
 
+function windowsBuildDiagnostic(): string {
+    try {
+        return execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", "$v=Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion'; \"$($v.ProductName) build $($v.CurrentBuildNumber).$($v.UBR)\""], { encoding: "utf8", windowsHide: true, timeout: 5000 }).trim().slice(0, 200);
+    } catch { return os.release(); }
+}
+
 function runElevatedInstaller(installer: string, mode: WireSockInstallerMode, timeoutMs = WIRESOCK_INSTALLER_TIMEOUT_MS): Promise<void> {
     const argumentsLiteral = wireSockInstallerArguments(mode).map(value => quotePowerShell(value)).join(",");
-    const command = `try { $p=Start-Process -FilePath ${quotePowerShell(installer)} -ArgumentList @(${argumentsLiteral}) -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ErrorAction Stop; if($null -eq $p){ exit 1223 }; exit [int]$p.ExitCode } catch { if($_.Exception.NativeErrorCode -eq 1223){ exit 1223 }; Write-Error $_; exit 1 }`;
+    const command = `try { $p=Start-Process -FilePath ${quotePowerShell(installer)} -ArgumentList @(${argumentsLiteral}) -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ErrorAction Stop; if($null -eq $p){ Write-Output 'GOLIVE_ELEVATION_CANCELED'; exit 1223 }; Write-Output 'GOLIVE_ELEVATION_ACCEPTED'; exit [int]$p.ExitCode } catch { if($_.Exception.NativeErrorCode -eq 1223){ Write-Output 'GOLIVE_ELEVATION_CANCELED'; exit 1223 }; Write-Error $_; exit 1 }`;
+    wireSockInstallerElevationResult = "elevation_requested_result_unknown";
     return new Promise((resolve, reject) => {
         const child = execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command], {
             windowsHide: true,
             timeout: timeoutMs,
-        }, error => {
+        }, (error, stdout, stderr) => {
+            if (String(stdout ?? "").includes("GOLIVE_ELEVATION_ACCEPTED")) wireSockInstallerElevationResult = "elevation_accepted";
+            if (String(stdout ?? "").includes("GOLIVE_ELEVATION_CANCELED")) wireSockInstallerElevationResult = "elevation_canceled";
             if (!error) { resolve(); return; }
+            Object.assign(error, { stdout: String(stdout ?? "").slice(0, 20000), stderr: safeDiagnosticDetail(stderr, 20000) });
             // No estouro a arvore inteira e morta: um setup vivo continuaria
             // escrevendo no WireSock depois de o plugin desistir.
             if ((error as { killed?: boolean }).killed) {
@@ -860,6 +871,8 @@ async function ensureWireSockInstalledOnce(log: WireSockLogger): Promise<string>
 
     const temporary = await fs.promises.mkdtemp(path.join(os.tmpdir(), "golive-plugin-wiresock-"));
     const installer = path.join(temporary, "wiresock-sdk.exe");
+    let installationSucceeded = false;
+    let preserveDiagnostics = false;
     try {
         log("info", "baixando instalador oficial do WireSock", { version: WIRESOCK_VERSION });
         await downloadInstaller(installer);
@@ -894,17 +907,35 @@ async function ensureWireSockInstalledOnce(log: WireSockLogger): Promise<string>
             installed = await waitForCompatibleWireSock(WIRESOCK_SETTLE_TIMEOUT_MS);
         }
         if (!installed) throw new Error("O instalador WireSock terminou, mas não deixou uma instalação SDK compatível.");
+        installationSucceeded = true;
         return installed;
     } catch (error) {
         const code = Number((error as { code?: unknown })?.code);
         if (code === 1223) throw new Error("A instalação do WireSock foi cancelada pelo usuário.");
         // O setup ja tocou o driver: a maquina nao pode ficar sem saida por causa disso.
         const restore = await restoreWireSockNetwork(log, { force: true });
-        log("error", "instalacao do WireSock falhou", { erro: logError(error), restore: { ...restore } });
+        const diagnostic = {
+            mode: "install",
+            exitCode: Number.isFinite(Number((error as { code?: unknown })?.code)) ? Number((error as { code?: unknown }).code) : null,
+            windowsBuild: windowsBuildDiagnostic(),
+            installer: await fs.promises.access(installer).then(() => installer, () => null),
+            powershellStderr: String((error as { stderr?: unknown })?.stderr ?? "").slice(0, 4000),
+            elevationResult: wireSockInstallerElevationResult,
+        };
+        const installerLog = [
+            `exitCode=${diagnostic.exitCode ?? "unknown"}`,
+            `elevation=${diagnostic.elevationResult}`,
+            `stdout=${String((error as { stdout?: unknown })?.stdout ?? "").slice(0, 20000)}`,
+            `stderr=${diagnostic.powershellStderr}`,
+        ].join("\n");
+        try { await fs.promises.writeFile(path.join(temporary, "installer.log"), installerLog, "utf8"); } catch {}
+        try { await fs.promises.writeFile(path.join(temporary, "diagnostic.json"), JSON.stringify(diagnostic, null, 2), "utf8"); } catch {}
+        preserveDiagnostics = true;
+        log("error", "instalacao do WireSock falhou; diagnostico preservado", { erro: logError(error), diagnostic, temporaryDirectory: temporary, restore: { ...restore } });
         const hint = wireSockInstallFailureHint(restore);
-        throw new Error(`Não foi possível preparar o WireSock: ${logError(error)}${hint ? ` ${hint}` : ""}`);
+        throw new Error(`Não foi possível preparar o WireSock: ${logError(error)} Diagnóstico salvo em ${temporary}.${hint ? ` ${hint}` : ""}`);
     } finally {
-        await fs.promises.rm(temporary, { recursive: true, force: true }).catch(() => {});
+        if (installationSucceeded || !preserveDiagnostics) await fs.promises.rm(temporary, { recursive: true, force: true }).catch(() => {});
     }
 }
 
