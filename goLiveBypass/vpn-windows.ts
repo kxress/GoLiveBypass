@@ -597,6 +597,26 @@ export function wireSockInstallerArguments(mode: WireSockInstallerMode): string[
     return [...WIRESOCK_INSTALLER_ARGUMENTS[mode]];
 }
 
+export type WireSockInstallerExitKind = "reboot" | "cancel" | "failure";
+const WIRESOCK_INSTALL_REBOOT = "WIRESOCK_INSTALL_REBOOT";
+const WIRESOCK_INSTALL_CANCEL = "WIRESOCK_INSTALL_CANCEL";
+
+/** Mantém os resultados do instalador separados de falhas do wrapper PowerShell. */
+export function wireSockInstallerExitKind(error: unknown): WireSockInstallerExitKind {
+    const code = Number((error as { code?: unknown })?.code);
+    const detail = safeDiagnosticDetail(error, 2000);
+    if (code === 3010 || code === 1641) return "reboot";
+    if (code === 1223 || /-2147023673|0x800704c7|cancel(?:led|ed)|user.?declin|recus/i.test(detail)) return "cancel";
+    return "failure";
+}
+
+function wireSockInstallModeError(error: unknown, mode: WireSockInstallerMode): Error {
+    const kind = wireSockInstallerExitKind(error);
+    if (kind === "cancel") return Object.assign(new Error("A instalação do WireSock foi cancelada pelo usuário; nenhuma tentativa adicional foi executada."), { code: WIRESOCK_INSTALL_CANCEL });
+    if (kind === "reboot") return Object.assign(new Error(`O instalador WireSock solicitou reinicialização (modo ${mode}). Reinicie o Windows e tente ativar novamente.`), { code: WIRESOCK_INSTALL_REBOOT });
+    return error instanceof Error ? error : new Error(String(error));
+}
+
 function windowsBuildDiagnostic(): string {
     try {
         return execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", "$v=Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion'; \"$($v.ProductName) build $($v.CurrentBuildNumber).$($v.UBR)\""], { encoding: "utf8", windowsHide: true, timeout: 5000 }).trim().slice(0, 200);
@@ -884,13 +904,14 @@ async function ensureWireSockInstalledOnce(log: WireSockLogger): Promise<string>
             try {
                 await runElevatedInstaller(installer, "uninstall", WIRESOCK_UNINSTALL_TIMEOUT_MS);
             } catch (error) {
+                const kind = wireSockInstallerExitKind(error);
+                if (kind === "reboot" || kind === "cancel") throw wireSockInstallModeError(error, "uninstall");
                 const code = Number((error as { code?: unknown })?.code);
-                if (code === 1223) throw new Error("A instalação do WireSock foi cancelada pelo usuário.");
                 if (!WIRESOCK_ABSENT_EXIT_CODES.has(code)) log("warn", "desinstalacao anterior nao confirmada", { codigo: code, erro: logError(error) });
             }
         }
         log("info", "instalando WireSock com elevação do Windows");
-        await runElevatedInstaller(installer, "install");
+        await runElevatedInstaller(installer, "install").catch(error => { throw wireSockInstallModeError(error, "install"); });
         let installed = await waitForCompatibleWireSock(WIRESOCK_SETTLE_TIMEOUT_MS);
         if (!installed) {
             // O setup entrou em manutencao e nao instalou (medido: /quiet devolve 0
@@ -900,8 +921,9 @@ async function ensureWireSockInstalledOnce(log: WireSockLogger): Promise<string>
             try {
                 await runElevatedInstaller(installer, "repair");
             } catch (error) {
+                const kind = wireSockInstallerExitKind(error);
+                if (kind === "reboot" || kind === "cancel") throw wireSockInstallModeError(error, "repair");
                 const code = Number((error as { code?: unknown })?.code);
-                if (code === 1223) throw new Error("A instalação do WireSock foi cancelada pelo usuário.");
                 log("warn", "reparo do WireSock nao confirmado", { erro: logError(error) });
             }
             installed = await waitForCompatibleWireSock(WIRESOCK_SETTLE_TIMEOUT_MS);
@@ -910,8 +932,13 @@ async function ensureWireSockInstalledOnce(log: WireSockLogger): Promise<string>
         installationSucceeded = true;
         return installed;
     } catch (error) {
-        const code = Number((error as { code?: unknown })?.code);
-        if (code === 1223) throw new Error("A instalação do WireSock foi cancelada pelo usuário.");
+        const installError = wireSockInstallModeError(error, "install");
+        const code = (installError as { code?: unknown }).code;
+        if (code === WIRESOCK_INSTALL_REBOOT) {
+            log("warn", "instalacao do WireSock requer reinicializacao; recuperacao da rede nao executada", { erro: logError(installError) });
+            throw installError;
+        }
+        if (code === WIRESOCK_INSTALL_CANCEL) throw installError;
         // O setup ja tocou o driver: a maquina nao pode ficar sem saida por causa disso.
         const restore = await restoreWireSockNetwork(log, { force: true });
         const diagnostic = {

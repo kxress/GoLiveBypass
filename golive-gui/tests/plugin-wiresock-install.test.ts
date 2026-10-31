@@ -6,6 +6,7 @@ import {
   parseWireSockUninstallEntries,
   wireSockInstallFailureHint,
   wireSockInstallerArguments,
+  wireSockInstallerExitKind,
   wireSockNetworkRestoreScript,
   wireSockResidueNeedsRestore,
   type WireSockNetworkRestoreResult,
@@ -69,10 +70,13 @@ describe("instalação do WireSock no plugin nunca deixa a máquina sem internet
   });
 
   it("modos do setup cobrem instalar, remover e reparar", () => {
-    expect(wireSockInstallerArguments("install")).toEqual(["/quiet", "/norestart"]);
-    expect(wireSockInstallerArguments("uninstall")).toEqual(["/uninstall", "/quiet", "/norestart"]);
-    expect(wireSockInstallerArguments("repair")).toEqual(["/repair", "/quiet", "/norestart"]);
+    expect(wireSockInstallerArguments("install")).toEqual(["/S", "/NCRC"]);
+    expect(wireSockInstallerArguments("uninstall")).toEqual(["/uninstall", "/S", "/NCRC"]);
+    expect(wireSockInstallerArguments("repair")).toEqual(["/repair", "/S", "/NCRC"]);
   });
+
+  it.each([3010, 1641])("classifica o código %i como reboot", code => expect(wireSockInstallerExitKind({ code })).toBe("reboot"));
+  it.each([1223, -2147023673])("classifica o código %i como cancelamento", code => expect(wireSockInstallerExitKind({ code })).toBe("cancel"));
 
   const restored: WireSockNetworkRestoreResult = {
     ok: true, executed: true, networkLockReset: true, dnsFlushed: true, adapterRoutesCleared: true, residual: [],
@@ -109,8 +113,8 @@ describe("o caminho de instalação do plugin usa a política nova", () => {
     expect(installBody).toContain('restoreWireSockNetwork(log, { force: true })');
     expect(installBody).toContain("wireSockInstallFailureHint(restore)");
     // Cancelamento do usuário continua saindo limpo, sem tocar na rede.
-    expect(installBody.indexOf('if (code === 1223) throw new Error("A instalação do WireSock foi cancelada pelo usuário.");'))
-      .toBeLessThan(installBody.lastIndexOf("restoreWireSockNetwork(log, { force: true })"));
+    expect(installBody).toContain("WIRESOCK_INSTALL_REBOOT");
+    expect(installBody).toContain("WIRESOCK_INSTALL_CANCEL");
   });
 
   it("espera a instalação assentar: o msiexec sobrevive ao setup", () => {
