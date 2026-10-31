@@ -154,7 +154,13 @@ describe("wiring do canal no updater e no workflow", () => {
     expect(workflow).toContain("canal:");
     expect(workflow).toContain("--config.publish.channel=beta --config.publish.releaseType=prerelease");
     expect(workflow).toContain("beta-marcar");
-    expect(workflow).toContain("--repo bezumiya/GoLiveBypass");
+    expect(workflow).toContain("github.repository_owner");
+    expect(workflow).toContain("github.event.repository.name");
+    expect(workflow).toContain("repository: ${{ github.repository }}");
+    expect(workflow).toContain("RELEASE_REPOSITORY: ${{ github.repository }}");
+    expect(workflow).toContain("somente_windows:");
+    expect(workflow).toContain("if: ${{ !inputs.somente_windows }}");
+    expect(workflow).not.toContain("--repo bezumiya/GoLiveBypass");
   });
 
   it("o updater nunca usa showMessageBoxSync (bloqueia o watchdog do Tor enquanto o dialogo espera resposta)", () => {

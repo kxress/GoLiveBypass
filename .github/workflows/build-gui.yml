@@ -23,6 +23,11 @@ on:
         required: false
         type: boolean
         default: false
+      somente_windows:
+        description: 'Executar somente o build Windows (pula Linux, macOS e helpers multiplataforma)'
+        required: false
+        type: boolean
+        default: false
 
 # O publisher respeita draft existente; o override também protege sua criação.
 env:
@@ -68,6 +73,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   linux:
+    if: ${{ !inputs.somente_windows }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -101,6 +107,7 @@ jobs:
     # Proton de extraResources. As saídas usam as mesmas flags determinísticas
     # da build local e o manifesto é publicado junto com os hashes.
     needs: [windows, linux]
+    if: ${{ !inputs.somente_windows }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -167,7 +174,7 @@ jobs:
   macos:
     # No canal beta o mac pula: o updater dele ja esta desligado no codigo (app
     # nao assinado) — nao ha o que testar lá, e buildar sem consumidor e ruido.
-    if: ${{ inputs.canal != 'beta' }}
+    if: ${{ !inputs.somente_windows && inputs.canal != 'beta' }}
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -269,7 +276,7 @@ jobs:
     # o override do electron-builder falhe (prerelease NUNCA vira "latest" — o
     # usuario estavel nem fica sabendo) e escreve a linha do canal na nota, que e
     # o que o testador le ao abrir a release.
-    if: ${{ inputs.canal == 'beta' && !inputs.rascunho }}
+    if: ${{ always() && inputs.canal == 'beta' && !inputs.rascunho && needs.windows.result == 'success' && needs.release-assets.result == 'success' && (inputs.somente_windows || (needs.linux.result == 'success' && needs.proton-runtime-assets.result == 'success')) }}
     runs-on: ubuntu-latest
     needs: [windows, linux, release-assets, proton-runtime-assets]
     steps:

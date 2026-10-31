@@ -6,9 +6,17 @@ segue [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+## [2.0.14-beta-win10-3] - 2026-10-31
+
 ### Build de teste
 
-- **`2.0.14-beta-win10-1` — build de diagnóstico para Windows 10.** Inclui a correção dos argumentos do instalador WireSock e coleta de diagnóstico em falhas. Esta build beta é destinada à validação no fork `kxress/GoLiveBypass`; não representa compatibilidade com Windows 10 confirmada.
+- Build beta de diagnóstico para Windows 10, com os argumentos oficiais do instalador WireSock e captura ampliada de falhas. Destinada à validação no fork `kxress/GoLiveBypass`; compatibilidade com Windows 10 ainda não foi confirmada.
+- O workflow aceita `somente_windows=true` para esta rodada: compila apenas a GUI Windows e o zip do plugin.
+
+### Build de teste
+
+- **`2.0.14-beta-win10-2` — execução de CI interrompida antes do build.** O teste do updater ainda exigia o destino de produção fixo; a regressão foi atualizada para exigir o destino do repositório disparado.
+- **`2.0.14-beta-win10-1` — execução de CI interrompida antes do build.** O workflow terminou na regressão do updater, que ainda exigia o repositório de produção fixo. Nenhum artefato foi criado nessa tentativa.
 
 ### Corrigido
 
