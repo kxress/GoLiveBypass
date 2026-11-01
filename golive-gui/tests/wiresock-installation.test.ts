@@ -4,7 +4,7 @@ import os from "node:os";
 import crypto from "node:crypto";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
-import { classifyWireSockActivationFailure, classifyWireSockDirectResult, classifyWireSockInstallState, formatAllowedApps, limparSinalDoSupervisor, mayUseServiceCompatibility, parseWireSockOrphanDefaultRoutes, parseWireSockUninstallEntries, readWireSockResult, wireSockExecError, wireSockInstallFailureHint, wireSockInstallModeError, wireSockInstallerArguments, wireSockInstallerExitKind, wireSockResidueNeedsRestore, type WireSockNetworkRestoreResult } from "../electron/wiresock";
+import { classifyWireSockActivationFailure, classifyWireSockDirectResult, classifyWireSockInstallState, collectWireSockVendorLogs, formatAllowedApps, limparSinalDoSupervisor, mayUseServiceCompatibility, parseWireSockOrphanDefaultRoutes, parseWireSockUninstallEntries, readWireSockResult, wireSockExecError, wireSockInstallFailureHint, wireSockInstallModeError, wireSockInstallerArguments, wireSockInstallerExitKind, wireSockResidueNeedsRestore, type WireSockNetworkRestoreResult } from "../electron/wiresock";
 import { elevatedPowerShellFileArgs, wireSockDirectScript, wireSockNetworkRestoreScript, wireSockServiceScript } from "../electron/wiresock-service";
 
 const sourcePath = path.resolve(process.cwd(), "electron/wiresock.ts");
@@ -34,8 +34,8 @@ function makeInstallOfficial() {
     const { path, fs, os, crypto, wireSockPlatform, downloadOfficialWireSock,
       WIRESOCK_INSTALLER_HASHES, wireSockInstallerExitKind, wireSockInstallFailureHint,
       detalheErro, markWireSockRebootPending, detectWireSockInstallState, wireSockInstallModeError,
-      runWireSockInstaller, findCompatibleWireSockAsync, restoreWireSockNetwork,
-      verifyWindowsNetworkStable, waitForCompatibleWireSock } = ctx;
+      runWireSockInstaller, findCompatibleWireSockAsync, restoreWireSockNetwork, collectWireSockVendorLogs,
+      verifyWindowsNetworkStable, waitForCompatibleWireSock, windowsBuildDiagnostic, wireSockInstallerElevationResult, logger } = ctx;
     const esperar = async () => {};
     const WIRESOCK_INSTALLER_TIMEOUT_MS = 1;
     const WIRESOCK_UNINSTALL_TIMEOUT_MS = 1;
@@ -69,6 +69,10 @@ function installCtx(options: InstallCtxOptions = {}) {
     WIRESOCK_INSTALLER_HASHES: { x64: crypto.createHash("sha256").update(fixture).digest("hex") },
     downloadOfficialWireSock: async (_platform: string, target: string) => fs.promises.writeFile(target, fixture),
     wireSockInstallerExitKind,
+    collectWireSockVendorLogs: async () => [],
+    windowsBuildDiagnostic: () => "Windows test build",
+    wireSockInstallerElevationResult: "not_requested",
+    logger: { warn: () => {}, error: () => {} },
     wireSockInstallFailureHint,
     wireSockInstallModeError,
     detalheErro: (error: unknown) => String((error as Error)?.message ?? error),
@@ -355,6 +359,31 @@ describe("servico WireSock sempre em StartMode=Manual (#281)", () => {
 // Instalação pela metade (setup caindo em "Modify Setup") deixava a máquina sem
 // internet: o app agora remove antes de instalar e garante a restauração da rede.
 describe("instalação quebrada do WireSock nunca deixa a máquina sem internet", () => {
+  it("coleta logs de bundle/MSI recentes, limita a busca e redige o perfil do usuário", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "wiresock-vendor-source-"));
+    const destination = fs.mkdtempSync(path.join(os.tmpdir(), "wiresock-vendor-dest-"));
+    try {
+      const recent = path.join(root, "WireSock_Secure_Connect_Bundle_attempt.log");
+      const msi = path.join(root, "attempt_WiresockMSI.log");
+      const unrelated = path.join(root, "unrelated.log");
+      fs.writeFileSync(recent, "setup failed for C:\\Users\\Calebe\\AppData\\Local\\Temp\\setup.exe");
+      fs.writeFileSync(msi, "MSI returned 1638");
+      fs.writeFileSync(unrelated, "not a vendor log");
+      const startedAt = Date.now() - 5000;
+      fs.utimesSync(recent, new Date(), new Date());
+      fs.utimesSync(msi, new Date(), new Date());
+      fs.utimesSync(unrelated, new Date(), new Date());
+      const copied = await collectWireSockVendorLogs(destination, startedAt, root);
+      expect(copied).toHaveLength(2);
+      expect(copied.map(entry => entry.sourceName)).toEqual(expect.arrayContaining(["attempt_WiresockMSI.log", "WireSock_Secure_Connect_Bundle_attempt.log"]));
+      expect(fs.readFileSync(path.join(destination, copied.find(entry => entry.sourceName === "WireSock_Secure_Connect_Bundle_attempt.log")!.copiedName), "utf8"))
+        .toContain("C:\\Users\\<usuario>");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(destination, { recursive: true, force: true });
+    }
+  });
+
   it.each([
     ["pasta do pacote sobrando", { installDir: true }],
     ["registro do Windows sobrando", { registered: true }],
@@ -451,9 +480,9 @@ describe("instalação quebrada do WireSock nunca deixa a máquina sem internet"
   });
 
   it("modos do setup cobrem instalar, remover e reparar", () => {
-    expect(wireSockInstallerArguments("install")).toEqual(["/quiet", "/norestart"]);
-    expect(wireSockInstallerArguments("uninstall")).toEqual(["/uninstall", "/quiet", "/norestart"]);
-    expect(wireSockInstallerArguments("repair")).toEqual(["/repair", "/quiet", "/norestart"]);
+    expect(wireSockInstallerArguments("install")).toEqual(["/S", "/NCRC"]);
+    expect(wireSockInstallerArguments("uninstall")).toEqual(["/uninstall", "/S", "/NCRC"]);
+    expect(wireSockInstallerArguments("repair")).toEqual(["/repair", "/S", "/NCRC"]);
   });
 
   it("verifica o par depois que a instalação assenta, não no instante do setup", () => {

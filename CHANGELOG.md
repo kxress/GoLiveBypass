@@ -6,6 +6,14 @@ segue [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+## [2.0.15-beta-1] - 2026-10-31
+
+### Diagnóstico
+
+- A GUI preserva automaticamente, na pasta de diagnóstico, logs recentes do bundle WireSock e do MSI após falha de instalação. Os arquivos passam por redação de caminhos pessoais e têm limites de quantidade e tamanho.
+- A chamada elevada informa separadamente que o UAC foi aceito e o código retornado pelo instalador; o marcador interno de elevação não aparece como causa da falha.
+- Esta versão melhora a evidência de instalação no Windows 10; não confirma nem corrige a causa da instalação sem o par SDK.
+
 ## [2.0.14-beta-win10-3] - 2026-10-31
 
 ### Build de teste

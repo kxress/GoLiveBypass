@@ -7,6 +7,7 @@ import { execFile, execFileSync } from "child_process";
 import dns from "dns/promises";
 import https from "https";
 import * as logger from "./logger";
+import { redigir } from "./redact";
 import { elevatedPowerShellFileArgs, wireSockCleanupScript, wireSockDirectScript, wireSockNetworkRestoreScript, wireSockServiceScript } from "./wiresock-service";
 import { inspectGuiWireSockOwnership, wireSockOwnershipSnapshotScript, type GuiWireSockInspection } from "./wiresock-ownership";
 import { enumerateWireSockCandidatesAsync, selectSupportedWireSock } from "./wiresock-preflight";
@@ -72,8 +73,10 @@ export function hasWireSockAdapterTrafficIncrease(
 }
 
 function detalheErro(err: unknown): string {
+  const stdout = String((err as { stdout?: string })?.stdout ?? "")
+    .replace(/GOLIVE_ELEVATION_(?:ACCEPTED|CANCELED)/g, "").trim();
   const texto = String((err as { stderr?: string; stdout?: string; message?: string })?.stderr ||
-    (err as { stdout?: string })?.stdout ||
+    stdout ||
     (err as { message?: string })?.message || err)
     .replace(/\s+/g, " ").trim();
   return texto.slice(0, 500) || "sem detalhes retornados pelo Windows";
@@ -428,8 +431,11 @@ function runWireSockInstaller(
   timeoutMs = WIRESOCK_INSTALLER_TIMEOUT_MS,
 ): Promise<void> {
   const file = installer.replace(/'/g, "''");
-  const argumentsLiteral = wireSockInstallerArguments(mode).map((value) => `'${value.replace(/'/g, "''")}'`).join(",");
-  const command = `try { $p=Start-Process -FilePath '${file}' -ArgumentList @(${argumentsLiteral}) -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ErrorAction Stop; if($null -eq $p){ Write-Output 'GOLIVE_ELEVATION_CANCELED'; exit 1223 }; Write-Output 'GOLIVE_ELEVATION_ACCEPTED'; exit [int]$p.ExitCode } catch { $c=$_.Exception.HResult; if($c -eq -2147023673 -or $_.Exception.NativeErrorCode -eq 1223){ Write-Output 'GOLIVE_ELEVATION_CANCELED'; exit 1223 }; Write-Error $_; exit 1 }`;
+  // Start-Process -Verb RunAs usa o ShellExecute do Windows e funciona no
+  // Windows PowerShell 5.1 (Windows 10). Os switches nao contem espacos;
+  // enviamos uma unica string para evitar diferencas de junção de string[] no PS 5.1.
+  const argumentsString = wireSockInstallerArguments(mode).join(" ").replace(/'/g, "''");
+  const command = `try { $p=Start-Process -FilePath '${file}' -ArgumentList '${argumentsString}' -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ErrorAction Stop; if($null -eq $p){ Write-Output 'GOLIVE_ELEVATION_CANCELED'; exit 1223 }; Write-Output 'GOLIVE_ELEVATION_ACCEPTED'; exit [int]$p.ExitCode } catch { $c=$_.Exception.HResult; if($c -eq -2147023673 -or $_.Exception.NativeErrorCode -eq 1223){ Write-Output 'GOLIVE_ELEVATION_CANCELED'; exit 1223 }; Write-Error $_; exit 1 }`;
   wireSockInstallerElevationResult = "elevation_requested_result_unknown";
   return new Promise<void>((resolve, reject) => {
     const child = execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command], { windowsHide: true, timeout: timeoutMs }, (error, stdout, stderr) => {
@@ -437,6 +443,12 @@ function runWireSockInstaller(
       if (String(stdout ?? "").includes("GOLIVE_ELEVATION_CANCELED")) wireSockInstallerElevationResult = "elevation_canceled";
       if (!error) { resolve(); return; }
       Object.assign(error, { stdout: String(stdout ?? ""), stderr: unwrapPowerShellErrorStream(stderr) });
+      if (String(stdout ?? "").includes("GOLIVE_ELEVATION_ACCEPTED") && typeof (error as { code?: unknown }).code === "number") {
+        error.message = `Elevação UAC aceita; o instalador WireSock (modo ${mode}) terminou com código ${(error as { code: number }).code}.`;
+      }
+      if (String(stdout ?? "").includes("GOLIVE_ELEVATION_CANCELED")) {
+        error.message = "A elevação do instalador WireSock foi cancelada no UAC do Windows.";
+      }
       if ((error as { killed?: boolean }).killed) {
         try { execFileSync("taskkill.exe", ["/F", "/T", "/PID", String(child.pid)], { stdio: "ignore", windowsHide: true }); } catch {}
         reject(new Error(`O instalador WireSock (modo ${mode}) não terminou em ${Math.round(timeoutMs / 1000)} s e foi encerrado.`));
@@ -463,6 +475,79 @@ async function waitForCompatibleWireSock(timeoutMs: number): Promise<string | nu
     if (Date.now() >= deadline) return null;
     await esperar(2000);
   }
+}
+
+const WIRESOCK_VENDOR_LOG_NAME = /^(?:WireSock_Secure_Connect_Bundle_.*|.*_WiresockMSI\.log)$/i;
+const WIRESOCK_VENDOR_LOG_MAX_FILES = 12;
+const WIRESOCK_VENDOR_LOG_MAX_FILE_BYTES = 5 * 1024 * 1024;
+const WIRESOCK_VENDOR_LOG_MAX_TOTAL_BYTES = 20 * 1024 * 1024;
+
+export interface WireSockVendorLogCopy {
+  sourceName: string;
+  copiedName: string;
+  sourceBytes: number;
+  copiedBytes: number;
+  modifiedAt: string;
+}
+
+/**
+ * Copia logs do bundle/MSI criados durante esta tentativa para o diagnóstico.
+ * Busca apenas no TEMP, até dois níveis, com limites de quantidade/tamanho;
+ * caminhos de usuário e segredos reconhecidos passam pela redação existente.
+ */
+export async function collectWireSockVendorLogs(
+  destination: string,
+  startedAt: number,
+  tempRoot = os.tmpdir(),
+): Promise<WireSockVendorLogCopy[]> {
+  const matches: Array<{ file: string; name: string; size: number; mtimeMs: number }> = [];
+  const pending: Array<{ directory: string; depth: number }> = [{ directory: tempRoot, depth: 0 }];
+  let inspected = 0;
+  while (pending.length && inspected < 4000 && matches.length < WIRESOCK_VENDOR_LOG_MAX_FILES * 2) {
+    const current = pending.shift()!;
+    let entries: fs.Dirent[];
+    try { entries = await fs.promises.readdir(current.directory, { withFileTypes: true }); } catch { continue; }
+    for (const entry of entries) {
+      if (++inspected > 4000) break;
+      const file = path.join(current.directory, entry.name);
+      if (entry.isDirectory() && current.depth < 2) {
+        pending.push({ directory: file, depth: current.depth + 1 });
+        continue;
+      }
+      if (!entry.isFile() || !WIRESOCK_VENDOR_LOG_NAME.test(entry.name)) continue;
+      try {
+        const stat = await fs.promises.stat(file);
+        if (stat.mtimeMs < startedAt - 60_000 || stat.size <= 0 || stat.size > WIRESOCK_VENDOR_LOG_MAX_FILE_BYTES) continue;
+        matches.push({ file, name: entry.name, size: stat.size, mtimeMs: stat.mtimeMs });
+      } catch { /* arquivo removido durante a varredura */ }
+    }
+  }
+
+  matches.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  const copied: WireSockVendorLogCopy[] = [];
+  let totalBytes = 0;
+  for (const match of matches.slice(0, WIRESOCK_VENDOR_LOG_MAX_FILES)) {
+    if (totalBytes >= WIRESOCK_VENDOR_LOG_MAX_TOTAL_BYTES) break;
+    try {
+      const raw = await fs.promises.readFile(match.file, "utf8");
+      const redacted = redigir(raw, []);
+      const buffer = Buffer.from(redacted, "utf8");
+      const allowedBytes = WIRESOCK_VENDOR_LOG_MAX_TOTAL_BYTES - totalBytes;
+      const limited = buffer.length > allowedBytes ? buffer.subarray(0, allowedBytes) : buffer;
+      if (!limited.length) continue;
+      const copiedName = `vendor-${String(copied.length + 1).padStart(2, "0")}-${match.name.replace(/[^a-z0-9._-]/gi, "_")}`;
+      await fs.promises.writeFile(path.join(destination, copiedName), limited, { flag: "wx" });
+      totalBytes += limited.length;
+      copied.push({
+        sourceName: match.name,
+        copiedName,
+        sourceBytes: match.size,
+        copiedBytes: limited.length,
+        modifiedAt: new Date(match.mtimeMs).toISOString(),
+      });
+    } catch { /* log inacessível ou removido: mantém o restante do diagnóstico */ }
+  }
+  return copied;
 }
 
 const WIRESOCK_INSTALL_REBOOT = "WIRESOCK_INSTALL_REBOOT";
@@ -561,6 +646,7 @@ async function installOfficialWireSock(onProgress?: (message: string) => void): 
   const installer = path.join(tempDir, "wiresock-sdk.exe");
   let installationSucceeded = false;
   let preserveDiagnostics = false;
+  let installerAttemptStartedAt = Date.now();
   try {
     onProgress?.("Baixando o instalador oficial do WireSock…");
     await downloadOfficialWireSock(platform.query, installer);
@@ -570,6 +656,7 @@ async function installOfficialWireSock(onProgress?: (message: string) => void): 
     });
     if (hash.toLowerCase() !== WIRESOCK_INSTALLER_HASHES[platform.hash]) throw new Error("Hash do instalador WireSock não corresponde ao release oficial fixado.");
     const state = await detectWireSockInstallState(false);
+    installerAttemptStartedAt = Date.now();
     // Instalacao pela metade: subir o setup por cima cai na tela "Modify Setup",
     // que em /quiet nao instala e pode deixar o driver trocado pela metade.
     // Remover antes e o que mantem o upgrade inteiro fora do modo manutencao.
@@ -616,6 +703,7 @@ async function installOfficialWireSock(onProgress?: (message: string) => void): 
     // foi quebrada por um setup que parou antes de mexer no driver.
     if (code === WIRESOCK_INSTALL_REBOOT) markWireSockRebootPending();
     if (code !== WIRESOCK_INSTALL_REBOOT && code !== WIRESOCK_INSTALL_CANCEL) {
+      const vendorLogs = await collectWireSockVendorLogs(tempDir, installerAttemptStartedAt).catch(() => []);
       const restore = await restoreWireSockNetwork("instalacao-falhou", { force: true });
       // O script de recuperacao roda elevado e relata o que fez; so a sonda de
       // saida diz se o Windows voltou a navegar, e e ela que vai no popup.
@@ -628,6 +716,7 @@ async function installOfficialWireSock(onProgress?: (message: string) => void): 
         installer: fs.existsSync(installer) ? installer : null,
         powershellStderr: String((installError as { stderr?: unknown })?.stderr ?? "").slice(0, 4000),
         elevationResult: wireSockInstallerElevationResult,
+        vendorLogs,
       };
       const installerLog = [
         `exitCode=${diagnostic.exitCode ?? "unknown"}`,
