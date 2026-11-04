@@ -384,7 +384,7 @@ function classifyWindowsDiscoveryError(error: unknown): {
     ? error as Record<string, unknown>
     : {};
   const code = record.code;
-  if (code === "ENOENT" || (typeof record.syscall === "string" && record.syscall.startsWith("spawn"))) {
+  if (code === "ENOENT" || code === "WINDOWS_POWERSHELL_NOT_FOUND" || (typeof record.syscall === "string" && record.syscall.startsWith("spawn"))) {
     return { errorCode: "POWERSHELL_SPAWN", errorDetail: sanitizeDiscoveryErrorDetail(error) };
   }
   if (code === "ETIMEDOUT" || code === "ETIME" || record.killed === true || record.timedOut === true) {

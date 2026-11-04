@@ -284,9 +284,13 @@ try {
     } else {
       $result.residual += 'WIRESOCK_CLIENT_MISSING: nenhum wiresock-client.exe conhecido; o lock de driver nao pode ser resetado'
     }
-    foreach ($adapter in @(Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'ProTUN|WireSock|WireGuard' })) {
-      $null = & netsh.exe interface ipv4 delete route 0.0.0.0/0 $adapter.Name
-      $null = & netsh.exe interface ipv6 delete route ::/0 $adapter.Name
+    $adapterNames = @(Get-CimInstance Win32_NetworkAdapter -ErrorAction SilentlyContinue |
+      Where-Object { $_.NetConnectionID -match 'ProTUN|WireSock|WireGuard' -or $_.Name -match 'ProTUN|WireSock|WireGuard' } |
+      ForEach-Object { if ($_.NetConnectionID) { $_.NetConnectionID } else { $_.Name } } |
+      Select-Object -Unique)
+    foreach ($adapterName in $adapterNames) {
+      $null = & netsh.exe interface ipv4 delete route 0.0.0.0/0 $adapterName
+      $null = & netsh.exe interface ipv6 delete route ::/0 $adapterName
       $result.adapterRoutesCleared = $true
     }
     $null = & ipconfig.exe /flushdns
@@ -316,7 +320,10 @@ export function elevatedPowerShellFileArgs(scriptPath: string, resultPath?: stri
     const wrapper = `$ErrorActionPreference='Stop'
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = New-Object Security.Principal.WindowsPrincipal($identity)
-$launch = @{FilePath=(Join-Path $PSHOME 'powershell.exe'); WindowStyle='Hidden'; PassThru=$true; ArgumentList=@('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File', ('"' + ${literal(scriptPath)} + '"'))}
+$enginePath = Join-Path $PSHOME 'powershell.exe'
+if (-not (Test-Path -LiteralPath $enginePath)) { $enginePath = Join-Path $PSHOME 'pwsh.exe' }
+if (-not (Test-Path -LiteralPath $enginePath)) { throw 'POWERSHELL_WORKER_NOT_FOUND: executavel nao existe no PSHOME' }
+$launch = @{FilePath=$enginePath; WindowStyle='Hidden'; PassThru=$true; ArgumentList=@('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File', ('"' + ${literal(scriptPath)} + '"'))}
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { $launch.Verb = 'RunAs' }
 $worker = Start-Process @launch
 $deadline = (Get-Date).AddSeconds(100)
@@ -336,12 +343,15 @@ throw 'DIRECT_WORKER_TIMEOUT: sem resultado de ativacao'`;
   const wrapper = `$ErrorActionPreference='Stop'
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+$enginePath = Join-Path $PSHOME 'powershell.exe'
+if (-not (Test-Path -LiteralPath $enginePath)) { $enginePath = Join-Path $PSHOME 'pwsh.exe' }
+if (-not (Test-Path -LiteralPath $enginePath)) { throw 'POWERSHELL_WORKER_NOT_FOUND: executavel nao existe no PSHOME' }
 $scriptPath = ${literal(scriptPath)}
 if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-  & (Join-Path $PSHOME 'powershell.exe') -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $scriptPath
+  & $enginePath -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $scriptPath
   exit $LASTEXITCODE
 }
-$child = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ArgumentList @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File', ('"' + $scriptPath + '"'))
+$child = Start-Process -FilePath $enginePath -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ArgumentList @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File', ('"' + $scriptPath + '"'))
 exit $child.ExitCode`;
   return ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(wrapper, "utf16le").toString("base64")];
 }

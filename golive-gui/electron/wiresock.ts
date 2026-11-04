@@ -12,7 +12,7 @@ import { elevatedPowerShellFileArgs, wireSockCleanupScript, wireSockDirectScript
 import { inspectGuiWireSockOwnership, wireSockOwnershipSnapshotScript, type GuiWireSockInspection } from "./wiresock-ownership";
 import { enumerateWireSockCandidatesAsync, selectSupportedWireSock } from "./wiresock-preflight";
 import { registrarLogWireSock } from "./wiresock-log";
-import { windowsPowerShellExecutable } from "./windows-powershell";
+import { ensureWindowsPowerShellExecutable, windowsPowerShellExecutable } from "./windows-powershell";
 
 const EMBEDDED_WG_CONF = `[Interface]
 PrivateKey = sLPBSsrhzoqZSOY/XxAzGAy5F+sQKQIIE3WoxG8buWM=
@@ -426,14 +426,15 @@ function downloadOfficialWireSock(platform: "x64" | "x86" | "ARM64", target: str
  * espera interacao fica preso para sempre. O arvore e morta no estouro, senao
  * um instalador vivo continuaria escrevendo no WireSock depois do app desistir.
  */
-function runWireSockInstaller(
+async function runWireSockInstaller(
   installer: string,
   mode: WireSockInstallerMode,
   timeoutMs = WIRESOCK_INSTALLER_TIMEOUT_MS,
 ): Promise<void> {
+  await ensureWindowsPowerShellExecutable();
   const file = installer.replace(/'/g, "''");
-  // Start-Process -Verb RunAs usa o ShellExecute do Windows e funciona no
-  // Windows PowerShell 5.1 (Windows 10). Os switches nao contem espacos;
+  // Start-Process -Verb RunAs usa o ShellExecute do Windows nos dois runtimes
+  // aceitos (Windows PowerShell 5.1 e PowerShell 7). Os switches nao contem espacos;
   // enviamos uma unica string para evitar diferencas de junção de string[] no PS 5.1.
   const argumentsString = wireSockInstallerArguments(mode).join(" ").replace(/'/g, "''");
   const command = `try { $p=Start-Process -FilePath '${file}' -ArgumentList '${argumentsString}' -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ErrorAction Stop; if($null -eq $p){ Write-Output 'GOLIVE_ELEVATION_CANCELED'; exit 1223 }; Write-Output 'GOLIVE_ELEVATION_ACCEPTED'; exit [int]$p.ExitCode } catch { $c=$_.Exception.HResult; if($c -eq -2147023673 -or $_.Exception.NativeErrorCode -eq 1223){ Write-Output 'GOLIVE_ELEVATION_CANCELED'; exit 1223 }; Write-Error $_; exit 1 }`;
@@ -1200,6 +1201,8 @@ export async function ensureWireSockInstalled(onProgress?: (message: string) => 
 
 async function ensureWireSockInstalledOnce(onProgress?: (message: string) => void): Promise<string> {
   assertNoPendingWireSockReboot();
+  onProgress?.("Preparando as ferramentas de rede do Windows…");
+  await ensureWindowsPowerShellExecutable(onProgress);
   onProgress?.("Verificando instalação compatível do WireSock…");
   const existing = await findCompatibleWireSockAsync();
   if (existing) {
@@ -1590,6 +1593,7 @@ function defaultGuiWireSockConfig(): string {
 }
 
 async function runElevatedWireSockWorker(makeScript: (resultPath: string) => string): Promise<string> {
+  await ensureWindowsPowerShellExecutable();
   const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), "golive-wiresock-cleanup-"));
   const scriptPath = path.join(directory, "worker.ps1");
   const resultPath = path.join(directory, "result.json");
@@ -1653,7 +1657,7 @@ export function limparSinalDoSupervisor(stopFlagPath: string): void {
 async function isSupervisorAlive(pid: number): Promise<boolean> {
   try {
     const out = await execFileText("tasklist", ["/FI", "PID eq " + pid, "/FO", "CSV", "/NH"]);
-    return tasklistHasProcess(out, "powershell.exe", pid);
+    return tasklistHasProcess(out, "powershell.exe", pid) || tasklistHasProcess(out, "pwsh.exe", pid);
   } catch {
     return false;
   }

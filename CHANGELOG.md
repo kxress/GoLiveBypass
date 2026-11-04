@@ -6,11 +6,18 @@ segue [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+## [2.0.16-beta-2] - 2026-11-03
+
+### Corrigido
+
+- **Ativação WireSock em Windows sem PowerShell.** Quando Windows PowerShell 5.1 e PowerShell 7 não existem, a GUI baixa sob demanda o ZIP oficial do PowerShell 7.6.9, confere o SHA-256 fixado antes de extrair e usa o runtime portátil no diretório do usuário. O worker elevado reconhece `pwsh.exe`, e a recuperação de rotas não depende do módulo `NetAdapter`.
+- **Cópias incompletas do PowerShell.** A resolução verifica os executáveis existentes em `System32`, `SysWOW64`, `PATH` e instalações de PowerShell 7 antes de iniciar qualquer operação.
+
 ## [2.0.16-beta-1] - 2026-11-03
 
 ### Corrigido
 
-- **PowerShell no Windows com `PATH` incompleto.** Os logs das versões `2.0.14-beta-win10-3` e `2.0.15` mostram `spawn powershell.exe ENOENT` na descoberta do Discord e na instalação/recuperação do WireSock. A GUI agora usa o caminho do Windows PowerShell 5.1 em `SystemRoot` quando o executável não está no `PATH`; preflight, descoberta do Discord, WireSock e sondas do updater compartilham a resolução, e os workers WireSock usam `$PSHOME` para iniciar subprocessos.
+- **PowerShell no Windows com `PATH` incompleto.** Os logs das versões `2.0.14-beta-win10-3` e `2.0.15` mostram `spawn powershell.exe ENOENT` na descoberta do Discord e na instalação/recuperação do WireSock. A GUI usa o caminho do Windows PowerShell 5.1 em `SystemRoot` quando o executável não está no `PATH`; preflight, descoberta do Discord, WireSock e sondas do updater compartilham a resolução, e os workers WireSock usam `$PSHOME` para iniciar subprocessos. A beta-2 acrescenta fallback portátil para instalações Windows sem PowerShell.
 
 ### Atualizado
 
