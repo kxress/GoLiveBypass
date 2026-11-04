@@ -6,6 +6,17 @@ segue [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+## [2.0.16-beta-1] - 2026-11-03
+
+### Corrigido
+
+- **PowerShell no Windows com `PATH` incompleto.** Os logs das versões `2.0.14-beta-win10-3` e `2.0.15` mostram `spawn powershell.exe ENOENT` na descoberta do Discord e na instalação/recuperação do WireSock. A GUI agora usa o caminho do Windows PowerShell 5.1 em `SystemRoot` quando o executável não está no `PATH`; preflight, descoberta do Discord, WireSock e sondas do updater compartilham a resolução, e os workers WireSock usam `$PSHOME` para iniciar subprocessos.
+
+### Atualizado
+
+- **Base sincronizada com upstream 2.0.15.** Esta beta inclui as atualizações oficiais mais recentes e os ajustes locais de compatibilidade do Windows 10. O app e o plugin desta build consultam as releases do fork `kxress/GoLiveBypass`.
+- O asset standalone não é anexado a esta beta; esse caminho segue pausado por seu bloqueio próprio.
+
 ## [2.0.15-beta-1] - 2026-10-31
 
 ### Diagnóstico

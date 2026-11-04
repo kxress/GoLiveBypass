@@ -243,7 +243,8 @@ describe("ativação extraída do fluxo real", () => {
         elevatedPowerShellFileArgs, readWireSockResult, classifyWireSockDirectResult, detalheErro,
         esperarProcessoWireSock, mayUseServiceCompatibility, classifyWireSockActivationFailure,
         stopWireSockService, WIRESOCK_SERVICE_NAMES, isServiceRunning, limparDnsDoAdaptadorWireSock,
-        formatAllowedApps, sanitizeWireGuardConfig, execFileWithWindow, setTunnelSupervisor, limparSinalDoSupervisor } = ctx;
+        formatAllowedApps, sanitizeWireGuardConfig, execFileWithWindow, windowsPowerShellExecutable,
+        setTunnelSupervisor, limparSinalDoSupervisor } = ctx;
       ${bodyOf("applyWireSockProfile")}
     }`)();
   }
@@ -274,6 +275,7 @@ describe("ativação extraída do fluxo real", () => {
       limparDnsDoAdaptadorWireSock: async () => {},
       setTunnelSupervisor: () => {},
       limparSinalDoSupervisor,
+      windowsPowerShellExecutable: () => "powershell.exe",
       execFileWithWindow: async () => {
         estado.elevados++;
         throw wireSockExecError(

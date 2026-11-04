@@ -606,7 +606,7 @@ export function wireSockInstallerExitKind(error: unknown): WireSockInstallerExit
     const code = Number((error as { code?: unknown })?.code);
     const detail = safeDiagnosticDetail(error, 2000);
     if (code === 3010 || code === 1641) return "reboot";
-    if (code === 1223 || /-2147023673|0x800704c7|cancel(?:led|ed)|user.?declin|recus/i.test(detail)) return "cancel";
+    if (code === 1223 || code === -2147023673 || code === 0x800704c7 || /-2147023673|0x800704c7|cancel(?:led|ed)|user.?declin|recus/i.test(detail)) return "cancel";
     return "failure";
 }
 

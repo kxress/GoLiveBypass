@@ -316,7 +316,7 @@ export function elevatedPowerShellFileArgs(scriptPath: string, resultPath?: stri
     const wrapper = `$ErrorActionPreference='Stop'
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = New-Object Security.Principal.WindowsPrincipal($identity)
-$launch = @{FilePath='powershell.exe'; WindowStyle='Hidden'; PassThru=$true; ArgumentList=@('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File', ('"' + ${literal(scriptPath)} + '"'))}
+$launch = @{FilePath=(Join-Path $PSHOME 'powershell.exe'); WindowStyle='Hidden'; PassThru=$true; ArgumentList=@('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File', ('"' + ${literal(scriptPath)} + '"'))}
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { $launch.Verb = 'RunAs' }
 $worker = Start-Process @launch
 $deadline = (Get-Date).AddSeconds(100)
@@ -338,10 +338,10 @@ $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = New-Object Security.Principal.WindowsPrincipal($identity)
 $scriptPath = ${literal(scriptPath)}
 if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-  & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $scriptPath
+  & (Join-Path $PSHOME 'powershell.exe') -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $scriptPath
   exit $LASTEXITCODE
 }
-$child = Start-Process powershell.exe -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ArgumentList @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File', ('"' + $scriptPath + '"'))
+$child = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ArgumentList @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File', ('"' + $scriptPath + '"'))
 exit $child.ExitCode`;
   return ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(wrapper, "utf16le").toString("base64")];
 }

@@ -192,10 +192,10 @@ if [ -f "$manifest" ]; then
     else
         bad "version do zip = $actual_version (esperado $VERSION)"
     fi
-    if grep -q "bezumiya/GoLiveBypass" "$manifest"; then
-        ok "updater.id = bezumiya/GoLiveBypass"
+    if grep -q "kxress/GoLiveBypass" "$manifest"; then
+        ok "updater.id = kxress/GoLiveBypass"
     else
-        bad "updater.id NAO e bezumiya/GoLiveBypass"
+        bad "updater.id NAO e kxress/GoLiveBypass"
     fi
     if grep -q "vencord.zip" "$manifest"; then
         ok "updater.assetName termina com vencord.zip"

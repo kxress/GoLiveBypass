@@ -254,7 +254,7 @@ describe("WireSock no Windows", () => {
     expect(decoded).toContain("-File $scriptPath");
     expect(decoded).toContain("-ExecutionPolicy Bypass -File $scriptPath");
     expect(decoded).toContain("'-ExecutionPolicy','Bypass','-File'");
-    expect(decoded).toContain("Start-Process powershell.exe -Verb RunAs");
+    expect(decoded).toContain("Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -Verb RunAs");
     expect(decoded).not.toContain("GOLIVE_WIRESOCK_ERROR");
   });
 

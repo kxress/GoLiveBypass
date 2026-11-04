@@ -15,7 +15,7 @@ import {
 function release(parcial: Partial<ReleaseCandidata>): ReleaseCandidata {
   return {
     tag: "v1.1.12",
-    url: "https://github.com/bezumiya/GoLiveBypass/releases/download/x/GoLiveBypass-1.1.12.exe",
+    url: "https://github.com/kxress/GoLiveBypass/releases/download/x/GoLiveBypass-1.1.12.exe",
     digest: "sha256:abc",
     prerelease: false,
     ...parcial,
@@ -23,7 +23,7 @@ function release(parcial: Partial<ReleaseCandidata>): ReleaseCandidata {
 }
 
 function urlDa(tag: string): string {
-  return "https://github.com/bezumiya/GoLiveBypass/releases/download/x/" + tag + ".exe";
+  return "https://github.com/kxress/GoLiveBypass/releases/download/x/" + tag + ".exe";
 }
 
 describe("compararVersoes (semver minimo do projeto)", () => {
@@ -56,6 +56,16 @@ describe("compararVersoes (semver minimo do projeto)", () => {
 
   it("prerelease de triplo maior ganha de stable de triplo menor", () => {
     expect(compararVersoes("1.1.13-beta.1", "1.1.12")).toBeGreaterThan(0);
+  });
+
+  it("2.0.16-beta-1 sucede a stable 2.0.15 sem parecer downgrade", () => {
+    expect(compararVersoes("2.0.16-beta-1", "2.0.15")).toBeGreaterThan(0);
+    expect(escolherRelease([
+      release({ tag: "v2.0.16-beta-1", url: urlDa("v2.0.16-beta-1"), prerelease: true }),
+    ], "2.0.15", "beta")?.tag).toBe("v2.0.16-beta-1");
+    expect(escolherRelease([
+      release({ tag: "v2.0.16-beta-1", url: urlDa("v2.0.16-beta-1"), prerelease: true }),
+    ], "2.0.15", "stable")).toBeNull();
   });
 });
 
@@ -129,7 +139,7 @@ describe("escolherAssetWindows (portable da release)", () => {
 describe("wiring do canal no updater e no workflow", () => {
   it("o updater liga allowPrerelease no Linux e usa escolherRelease no Windows", () => {
     const updater = fs.readFileSync(path.resolve(process.cwd(), "electron/updater.ts"), "utf8");
-    expect(updater).toContain('const REPO = "bezumiya/GoLiveBypass"');
+    expect(updater).toContain('const REPO = "kxress/GoLiveBypass"');
     expect(updater).toContain('autoUpdater.allowPrerelease = canalAtual() === "beta"');
     // Sem o channel explicito o Linux pedia latest-linux.yml dentro da release beta
     // (404) e o canal beta nunca atualizava; o setter do channel liga allowDowngrade.
@@ -161,6 +171,7 @@ describe("wiring do canal no updater e no workflow", () => {
     expect(workflow).toContain("somente_windows:");
     expect(workflow).toContain("if: ${{ !inputs.somente_windows }}");
     expect(workflow).not.toContain("--repo bezumiya/GoLiveBypass");
+    expect(workflow).toContain("if: ${{ inputs.canal != 'beta' }}");
   });
 
   it("o updater nunca usa showMessageBoxSync (bloqueia o watchdog do Tor enquanto o dialogo espera resposta)", () => {

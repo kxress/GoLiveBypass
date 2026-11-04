@@ -82,7 +82,7 @@ describe("runtime Proton empacotado", () => {
       expectedSha256: "0".repeat(64),
     })).rejects.toThrow(/SHA-256/i);
     expect(protonRuntimeAssetUrl("2.0.6-beta-2", "GoLiveBypass-2.0.6-beta-2-proton-confgen-win-x64.exe"))
-      .toBe("https://github.com/bezumiya/GoLiveBypass/releases/download/v2.0.6-beta-2/GoLiveBypass-2.0.6-beta-2-proton-confgen-win-x64.exe");
+      .toBe("https://github.com/kxress/GoLiveBypass/releases/download/v2.0.6-beta-2/GoLiveBypass-2.0.6-beta-2-proton-confgen-win-x64.exe");
     expect(() => protonRuntimeAssetUrl("2.0.6-beta-2", "../proton-confgen.exe")).toThrow(/asset/i);
   });
 

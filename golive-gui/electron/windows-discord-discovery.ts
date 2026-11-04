@@ -1,6 +1,7 @@
 import { execFile, execFileSync } from "child_process";
 import path from "path";
 import type { WindowsDiscordInstall } from "./windows-discord-install";
+import { windowsPowerShellExecutable } from "./windows-powershell";
 
 export type WindowsDiscoveryFlavour =
   | "Discord"
@@ -450,7 +451,7 @@ export function collectWindowsDiscoveryPowerShell(
 ): WindowsDiscoveryRaw {
   let stdout: string;
   try {
-    stdout = runner("powershell.exe", windowsDiscoveryPowerShellArgs());
+    stdout = runner(windowsPowerShellExecutable(), windowsDiscoveryPowerShellArgs());
   } catch (error) {
     const failure = classifyWindowsDiscoveryError(error);
     throw new WindowsDiscoveryCollectionError(failure.errorCode, failure.errorDetail);
@@ -463,7 +464,7 @@ export async function collectWindowsDiscoveryPowerShellAsync(
 ): Promise<WindowsDiscoveryRaw> {
   let stdout: string;
   try {
-    stdout = await runner("powershell.exe", windowsDiscoveryPowerShellArgs());
+    stdout = await runner(windowsPowerShellExecutable(), windowsDiscoveryPowerShellArgs());
   } catch (error) {
     const failure = classifyWindowsDiscoveryError(error);
     throw new WindowsDiscoveryCollectionError(failure.errorCode, failure.errorDetail);

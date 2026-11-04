@@ -12,6 +12,7 @@ import { elevatedPowerShellFileArgs, wireSockCleanupScript, wireSockDirectScript
 import { inspectGuiWireSockOwnership, wireSockOwnershipSnapshotScript, type GuiWireSockInspection } from "./wiresock-ownership";
 import { enumerateWireSockCandidatesAsync, selectSupportedWireSock } from "./wiresock-preflight";
 import { registrarLogWireSock } from "./wiresock-log";
+import { windowsPowerShellExecutable } from "./windows-powershell";
 
 const EMBEDDED_WG_CONF = `[Interface]
 PrivateKey = sLPBSsrhzoqZSOY/XxAzGAy5F+sQKQIIE3WoxG8buWM=
@@ -376,7 +377,7 @@ function wireSockPlatform(): { hash: keyof typeof WIRESOCK_INSTALLER_HASHES; que
 
 function windowsBuildDiagnostic(): string {
   try {
-    return execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", "$v=Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion'; \"$($v.ProductName) build $($v.CurrentBuildNumber).$($v.UBR)\""], { encoding: "utf8", windowsHide: true, timeout: 5000 }).trim().slice(0, 200);
+    return execFileSync(windowsPowerShellExecutable(), ["-NoProfile", "-NonInteractive", "-Command", "$v=Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion'; \"$($v.ProductName) build $($v.CurrentBuildNumber).$($v.UBR)\""], { encoding: "utf8", windowsHide: true, timeout: 5000 }).trim().slice(0, 200);
   } catch { return os.release(); }
 }
 
@@ -438,7 +439,7 @@ function runWireSockInstaller(
   const command = `try { $p=Start-Process -FilePath '${file}' -ArgumentList '${argumentsString}' -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ErrorAction Stop; if($null -eq $p){ Write-Output 'GOLIVE_ELEVATION_CANCELED'; exit 1223 }; Write-Output 'GOLIVE_ELEVATION_ACCEPTED'; exit [int]$p.ExitCode } catch { $c=$_.Exception.HResult; if($c -eq -2147023673 -or $_.Exception.NativeErrorCode -eq 1223){ Write-Output 'GOLIVE_ELEVATION_CANCELED'; exit 1223 }; Write-Error $_; exit 1 }`;
   wireSockInstallerElevationResult = "elevation_requested_result_unknown";
   return new Promise<void>((resolve, reject) => {
-    const child = execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command], { windowsHide: true, timeout: timeoutMs }, (error, stdout, stderr) => {
+    const child = execFile(windowsPowerShellExecutable(), ["-NoProfile", "-NonInteractive", "-Command", command], { windowsHide: true, timeout: timeoutMs }, (error, stdout, stderr) => {
       if (String(stdout ?? "").includes("GOLIVE_ELEVATION_ACCEPTED")) wireSockInstallerElevationResult = "elevation_accepted";
       if (String(stdout ?? "").includes("GOLIVE_ELEVATION_CANCELED")) wireSockInstallerElevationResult = "elevation_canceled";
       if (!error) { resolve(); return; }
@@ -614,7 +615,7 @@ async function hasWireSockUninstallRegistration(): Promise<{ registered: boolean
   const script = "$roots=@('HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*','HKLM:\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*','HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'); $found=@(); foreach($root in $roots){ try { Get-ItemProperty -Path $root -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -and $_.DisplayName -match '(?i)wire\\s?sock|wglaunch' } | ForEach-Object { $found += [PSCustomObject]@{ name=[string]$_.DisplayName } } } catch {} }; ConvertTo-Json -Compress $found";
   try {
     const output = await new Promise<string>((resolve, reject) => execFile(
-      "powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script],
+      windowsPowerShellExecutable(), ["-NoProfile", "-NonInteractive", "-Command", script],
       { encoding: "utf8", windowsHide: true, timeout: 8000 },
       (error, stdout) => error ? reject(error) : resolve(stdout),
     ));
@@ -1048,7 +1049,7 @@ export function getWireSockAdapterTraffic(): WireSockAdapterTraffic | null {
   if (process.platform !== "win32") return null;
   try {
     const script = "$a = Get-NetAdapterStatistics -Name 'ProTUN' -ErrorAction Stop; [PSCustomObject]@{adapter='ProTUN';receivedBytes=[int64]$a.ReceivedBytes;sentBytes=[int64]$a.SentBytes} | ConvertTo-Json -Compress";
-    const output = execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
+    const output = execFileSync(windowsPowerShellExecutable(), ["-NoProfile", "-NonInteractive", "-Command", script], {
       encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true, timeout: 5000,
     }).trim();
     const parsed = JSON.parse(output) as { adapter?: unknown; receivedBytes?: unknown; sentBytes?: unknown };
@@ -1131,7 +1132,7 @@ export async function getWireSockAdapterTrafficAsync(options: { lembrarAusencia?
   } catch { /* cai no PowerShell */ }
   try {
     const script = "$a = Get-NetAdapterStatistics -Name 'ProTUN' -ErrorAction Stop; [PSCustomObject]@{adapter='ProTUN';receivedBytes=[int64]$a.ReceivedBytes;sentBytes=[int64]$a.SentBytes} | ConvertTo-Json -Compress";
-    const output = (await execFileText("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script])).trim();
+    const output = (await execFileText(windowsPowerShellExecutable(), ["-NoProfile", "-NonInteractive", "-Command", script])).trim();
     const parsed = JSON.parse(output) as { adapter?: unknown; receivedBytes?: unknown; sentBytes?: unknown };
     const receivedBytes = Number(parsed.receivedBytes);
     const sentBytes = Number(parsed.sentBytes);
@@ -1319,7 +1320,7 @@ async function applyWireSockProfile(installDir: string, rawConf: string, allowed
     const directStartedAt = Date.now();
     let directError: unknown = null;
     try {
-      await execFileWithWindow("powershell.exe", elevatedPowerShellFileArgs(directScriptPath, directResultPath), {
+      await execFileWithWindow(windowsPowerShellExecutable(), elevatedPowerShellFileArgs(directScriptPath, directResultPath), {
         windowsHide: true, timeout: 120_000,
       });
     } catch (error) {
@@ -1403,7 +1404,7 @@ async function applyWireSockProfile(installDir: string, rawConf: string, allowed
       const serviceStartedAt = Date.now();
       let serviceError: unknown = null;
       try {
-        await execFileWithWindow("powershell.exe", elevatedPowerShellFileArgs(serviceScriptPath), {
+        await execFileWithWindow(windowsPowerShellExecutable(), elevatedPowerShellFileArgs(serviceScriptPath), {
           windowsHide: true, timeout: 120_000,
         });
       } catch (error) {
@@ -1596,7 +1597,7 @@ async function runElevatedWireSockWorker(makeScript: (resultPath: string) => str
     await fs.promises.writeFile(scriptPath, makeScript(resultPath), { encoding: "utf8", mode: 0o600 });
     let workerError: unknown;
     try {
-      await execFileWithWindow("powershell.exe", elevatedPowerShellFileArgs(scriptPath), { windowsHide: false, timeout: UAC_TIMEOUT_MS });
+      await execFileWithWindow(windowsPowerShellExecutable(), elevatedPowerShellFileArgs(scriptPath), { windowsHide: false, timeout: UAC_TIMEOUT_MS });
     } catch (error) { workerError = error; }
     // Even a refused cleanup writes a result. A failed UAC/spawn does not.
     try { return await fs.promises.readFile(resultPath, "utf8"); } catch {
@@ -1611,7 +1612,7 @@ async function inspectGuiWireSock(configPath: string): Promise<GuiWireSockInspec
   const script = wireSockOwnershipSnapshotScript(configPath);
   let raw = "";
   try {
-    raw = await execFileWithWindow("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], { windowsHide: true, timeout: 10_000 });
+    raw = await execFileWithWindow(windowsPowerShellExecutable(), ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], { windowsHide: true, timeout: 10_000 });
   } catch {}
   // Sem UAC: um app comum nao le a linha de comando de um tunel elevado, entao o resultado pode vir
   // "nao confiavel". Isso e resolvido em stopWireSockService, sem abrir um segundo pedido de UAC.

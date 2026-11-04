@@ -202,10 +202,8 @@ jobs:
 
 
   release-assets:
-    # Sobe os assets de update que NAO dependem do electron-builder: o zip do
-    # userplugin Vencord e o bypass standalone "puro". Roda em paralelo com os
-    # builds da GUI (sao independentes). No beta, todos os assets permanecem em
-    # draft ate beta-marcar concluir a classificacao da release.
+    # Sobe o zip do userplugin em todos os canais. O bypass standalone fica fora
+    # do beta enquanto esse caminho segue pausado por bloqueio proprio.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -250,15 +248,20 @@ jobs:
           zip -r "${{ steps.version.outputs.vencord_basename }}.zip" goLiveBypass/
 
       - name: Bypass standalone "puro" (para distribuicao manual)
+        if: ${{ inputs.canal != 'beta' }}
         run: |
           cp standalone/golivebypass.js "${{ steps.version.outputs.bypass_basename }}.js"
 
-      - name: SHA-256 dos novos assets
+      - name: SHA-256 do plugin Vencord
         run: |
           sha256sum "${{ steps.version.outputs.vencord_basename }}.zip" > "${{ steps.version.outputs.vencord_basename }}.zip.sha256"
+
+      - name: SHA-256 do bypass standalone
+        if: ${{ inputs.canal != 'beta' }}
+        run: |
           sha256sum "${{ steps.version.outputs.bypass_basename }}.js" > "${{ steps.version.outputs.bypass_basename }}.js.sha256"
 
-      - name: Upload dos assets para a release
+      - name: Upload do plugin Vencord
         uses: softprops/action-gh-release@v2
         with:
           repository: ${{ github.repository }}
@@ -267,6 +270,16 @@ jobs:
           files: |
             ${{ steps.version.outputs.vencord_basename }}.zip
             ${{ steps.version.outputs.vencord_basename }}.zip.sha256
+          fail_on_unmatched_files: true
+
+      - name: Upload do bypass standalone
+        if: ${{ inputs.canal != 'beta' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          repository: ${{ github.repository }}
+          tag_name: "${{ inputs.tag }}"
+          draft: ${{ inputs.rascunho }}
+          files: |
             ${{ steps.version.outputs.bypass_basename }}.js
             ${{ steps.version.outputs.bypass_basename }}.js.sha256
           fail_on_unmatched_files: true

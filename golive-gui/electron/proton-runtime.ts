@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import https from "node:https";
 
-const RUNTIME_REPO = "bezumiya/GoLiveBypass";
+const RUNTIME_REPO = "kxress/GoLiveBypass";
 const MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024;
 const MAX_MANIFEST_BYTES = 1024 * 1024;
 const MAX_REDIRECTS = 3;

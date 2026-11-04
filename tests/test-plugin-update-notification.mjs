@@ -63,21 +63,21 @@ test("updater restringe metadata e artefatos ao GitHub oficial", () => {
   assert.match(nativeSource, /isCompatiblePluginManifest\(manifest, PLUGIN_ASSET\)/);
   assert.match(source, /checkPluginUpdate\(selectedUpdatePolicy\)/);
   assert.match(source, /updatePlugin\(selectedUpdatePolicy\)/);
-  assert.match(nativeSource, /api\.github\.com\/repos\/bezumiya\/GoLiveBypass\/releases/);
-  const asset = "https://github.com/bezumiya/GoLiveBypass/releases/download/v2.0.6-beta-3/goLiveBypass-vencord.zip";
+  assert.match(nativeSource, /api\.github\.com\/repos\/kxress\/GoLiveBypass\/releases/);
+  const asset = "https://github.com/kxress/GoLiveBypass/releases/download/v2.0.6-beta-3/goLiveBypass-vencord.zip";
   assert.equal(releaseAssetUrl(asset), asset);
   assert.equal(releaseAssetUrl("https://evil.example/releases/download/v2.0.6/goLiveBypass-vencord.zip"), null);
   assert.equal(releaseAssetUrl("https://github.com.evil/releases/download/v2.0.6/goLiveBypass-vencord.zip"), null);
   assert.equal(releaseAssetUrl("https://attacker.github.com/releases/download/v2.0.6/goLiveBypass-vencord.zip"), null);
   assert.equal(releaseAssetUrl("https://github.com/other/repo/releases/download/v2.0.6/goLiveBypass-vencord.zip"), null);
-  assert.equal(releaseAssetUrl("https://github.com/bezumiya/GoLiveBypass/releases/download/v2.0.6/%2e%2e/evil.zip"), null);
-  assert.throws(() => securePluginUpdateUrl("http://github.com/bezumiya/GoLiveBypass/releases/download/v2.0.6/a.zip"), /HTTPS/);
+  assert.equal(releaseAssetUrl("https://github.com/kxress/GoLiveBypass/releases/download/v2.0.6/%2e%2e/evil.zip"), null);
+  assert.throws(() => securePluginUpdateUrl("http://github.com/kxress/GoLiveBypass/releases/download/v2.0.6/a.zip"), /HTTPS/);
   assert.throws(() => securePluginUpdateUrl("https://evil.example/update.zip"), /host fora/);
   assert.throws(() => securePluginUpdateUrl("https://user:pass@github.com/update.zip"), /credenciais/);
   assert.throws(() => securePluginUpdateUrl("https://github.com:444/update.zip"), /porta/);
   const officialManifest = {
     name: "GoLiveBypass",
-    updater: { type: "github", id: "bezumiya/GoLiveBypass", assetName: "goLiveBypass-vencord.zip" },
+    updater: { type: "github", id: "kxress/GoLiveBypass", assetName: "goLiveBypass-vencord.zip" },
   };
   assert.equal(isOfficialPluginManifest(officialManifest, "goLiveBypass-vencord.zip"), true);
   assert.equal(isOfficialPluginManifest({ ...officialManifest, updater: { ...officialManifest.updater, id: "pdl-clay/GoLiveBypass" } }, "goLiveBypass-vencord.zip"), false);
@@ -99,8 +99,8 @@ test("updater restringe metadata e artefatos ao GitHub oficial", () => {
     "https://release-assets.githubusercontent.com/release.zip",
   );
   assert.equal(
-    securePluginUpdateUrl("release.zip", "https://github.com/bezumiya/GoLiveBypass/releases/download/v2.0.6/"),
-    "https://github.com/bezumiya/GoLiveBypass/releases/download/v2.0.6/release.zip",
+    securePluginUpdateUrl("release.zip", "https://github.com/kxress/GoLiveBypass/releases/download/v2.0.6/"),
+    "https://github.com/kxress/GoLiveBypass/releases/download/v2.0.6/release.zip",
   );
 });
 

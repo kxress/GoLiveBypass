@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { execFile } from "child_process";
 import * as logger from "./logger";
+import { windowsPowerShellExecutable } from "./windows-powershell";
 
 export const MIN_WIRESOCK_SDK = Object.freeze({ major: 3, minor: 4, patch: 8, build: 1 });
 export type WireSockVersion = { major: number; minor: number; patch: number; build: number };
@@ -89,7 +90,7 @@ export async function enumerateWireSockCandidatesAsync(roots: string[]): Promise
   let output: string;
   try {
     output = await new Promise<string>((resolve, reject) => execFile(
-      "powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script],
+      windowsPowerShellExecutable(), ["-NoProfile", "-NonInteractive", "-Command", script],
       { encoding: "utf8", windowsHide: true, timeout: 5000 },
       (error, stdout) => error ? reject(error) : resolve(stdout),
     ));

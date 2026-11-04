@@ -397,7 +397,7 @@ describe("discovery Windows puro", () => {
     });
 
     expect(parsed.registry).toMatchObject({ status: "partial", truncated: true, errorCode: "UNINSTALL_LIMIT" });
-    expect(invocation?.file).toBe("powershell.exe");
+    expect(invocation?.file).toMatch(/(?:^|[\\/])powershell\.exe$/i);
     expect(invocation?.args).toEqual(expect.arrayContaining(["-NoProfile", "-NonInteractive", "-EncodedCommand"]));
     expect(invocation?.args).not.toContain("-ExecutionPolicy");
     expect(invocation?.args).not.toContain("-Command");
@@ -426,7 +426,7 @@ describe("discovery Windows puro", () => {
     });
 
     expect(parsed.registry).toMatchObject({ status: "partial", truncated: true, errorCode: "UNINSTALL_LIMIT" });
-    expect(invocation?.file).toBe("powershell.exe");
+    expect(invocation?.file).toMatch(/(?:^|[\\/])powershell\.exe$/i);
     const encoded = invocation?.args[3] ?? "";
     expect(Buffer.from(encoded, "base64").toString("utf16le")).toBe(buildWindowsDiscoveryPowerShell());
 

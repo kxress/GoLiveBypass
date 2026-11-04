@@ -15,7 +15,7 @@ export function testPortableFiles(gui: string, helper: string): void {
   const tag = "v2.0.6-beta-5";
   const assetName = "GoLiveBypass-2.0.6-beta-5.exe";
   const identity = { assetName, size: good.length,
-    url: `https://github.com/bezumiya/GoLiveBypass/releases/download/${tag}/${assetName}`,
+    url: `https://github.com/kxress/GoLiveBypass/releases/download/${tag}/${assetName}`,
     digest: `sha256:${createHash("sha256").update(good).digest("hex")}` };
   assert.equal(validWindowsIdentity(tag, identity), true);
   assert.equal(verifyWindowsAsset(gui, tag, identity), true);

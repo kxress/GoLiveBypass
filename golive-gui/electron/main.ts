@@ -50,6 +50,7 @@ import { readManualTarget } from "./linux-manual-target";
 import { sessionMarkerPaths } from "./linux-session-marker";
 import { classifyLinuxHealth } from "./linux-health";
 import { PROTON_CAPTCHA_IPC_CHANNEL, isAllowedProtonCaptchaNavigation, parseProtonCaptchaChallenge, validateProtonCaptchaResponse } from "./proton-captcha";
+import { windowsPowerShellExecutable } from "./windows-powershell";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -1131,7 +1132,7 @@ const DISCORD_UPDATER_KILL_SCRIPT = "$procs = Get-CimInstance Win32_Process -Fil
 async function killDiscordUpdater(): Promise<void> {
   if (!IS_WINDOWS) return;
   try {
-    await execFileTextAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", DISCORD_UPDATER_KILL_SCRIPT]);
+    await execFileTextAsync(windowsPowerShellExecutable(), ["-NoProfile", "-NonInteractive", "-Command", DISCORD_UPDATER_KILL_SCRIPT]);
   } catch (err) {
     logger.warn("discord", "nao consegui encerrar o updater do Discord", { erro: String((err as Error)?.message ?? err) });
   }
@@ -1142,7 +1143,7 @@ async function killDiscordUpdater(): Promise<void> {
 async function discordUpdaterProcessState(): Promise<ProcessProbeState> {
   if (!IS_WINDOWS) return "stopped";
   try {
-    await execFileTextAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", DISCORD_UPDATER_PROBE_SCRIPT]);
+    await execFileTextAsync(windowsPowerShellExecutable(), ["-NoProfile", "-NonInteractive", "-Command", DISCORD_UPDATER_PROBE_SCRIPT]);
     return "running";
   } catch (err) {
     // O exit 1 e' a resposta esperada do script para nenhuma instancia Discord.

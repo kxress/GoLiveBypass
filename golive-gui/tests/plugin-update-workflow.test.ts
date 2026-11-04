@@ -21,16 +21,25 @@ function jobBlock(name: string): string {
 describe("workflow de release do plugin", () => {
   it("executa release-assets também no canal beta", () => {
     const assets = jobBlock("release-assets");
+    const pluginUpload = assets.slice(
+      assets.indexOf("- name: Upload do plugin Vencord"),
+      assets.indexOf("- name: Upload do bypass standalone"),
+    );
+    const standaloneUpload = assets.slice(assets.indexOf("- name: Upload do bypass standalone"));
 
-    expect(assets).not.toMatch(/if:\s*\$\{\{\s*inputs\.canal\s*!=\s*'beta'/);
+    expect(pluginUpload).not.toMatch(/^\s+if:/m);
     expect(assets).toContain("echo \"vencord_basename=goLiveBypass-vencord\"");
     expect(assets).toContain("${{ steps.version.outputs.vencord_basename }}.zip");
     expect(assets).toContain("${{ steps.version.outputs.vencord_basename }}.zip.sha256");
+    expect(standaloneUpload).toMatch(/if:\s*\$\{\{\s*inputs\.canal\s*!=\s*'beta'/);
   });
 
   it("mantém assets beta em draft até a etapa de marcação", () => {
     const assets = jobBlock("release-assets");
-    const upload = assets.slice(assets.indexOf("- name: Upload dos assets para a release"));
+    const upload = assets.slice(
+      assets.indexOf("- name: Upload do plugin Vencord"),
+      assets.indexOf("- name: Upload do bypass standalone"),
+    );
 
     expect(upload).toContain("draft: ${{ inputs.rascunho || inputs.canal == 'beta' }}");
     expect(upload).toContain("${{ steps.version.outputs.vencord_basename }}.zip");
