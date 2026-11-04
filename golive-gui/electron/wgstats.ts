@@ -16,6 +16,7 @@
 // roteamento, timeout curto).
 
 import { execFile, execSync } from "child_process";
+import { amostrarERegistrarFragmentos, reiniciarFragmentos } from "./fragmentos-ip";
 import * as logger from "./logger";
 import { avaliarSaudeWireSock, caminhoLogWireSock, lerResumoLogWireSock } from "./wiresock-log";
 
@@ -166,6 +167,7 @@ export function getWgStats(): WgTunnelStats {
 let timer: ReturnType<typeof setInterval> | null = null;
 let ultimoRx: number | null = null;
 let ultimoTx: number | null = null;
+let ultimaAmostraMs: number | null = null;
 let watchdogGeneration = 0;
 let watchdogInFlight = false;
 
@@ -215,8 +217,12 @@ export function iniciarWgStatsWatchdog(provider: WgStatsProvider = getWgStats) {
   const generation = ++watchdogGeneration;
   ultimoRx = null;
   ultimoTx = null;
+  ultimaAmostraMs = null;
   ultimaSaudeInfoMs = Number.NEGATIVE_INFINITY;
   ultimoIndisponivelMs = Number.NEGATIVE_INFINITY;
+  // Fragmentos IP (so Windows, ver fragmentos-ip.ts): a contagem "desde o tunel" parte daqui.
+  reiniciarFragmentos();
+  void amostrarERegistrarFragmentos();
   timer = setInterval(() => {
     // O provider Linux pode envolver um processo elevado e, em uma máquina
     // congestionada, durar mais que o intervalo. Nunca sobreponha leituras:
@@ -246,13 +252,19 @@ export function iniciarWgStatsWatchdog(provider: WgStatsProvider = getWgStats) {
         if (s.rxBytes !== null && s.txBytes !== null) {
           dadosCampo.rx_total_kb = Math.round(s.rxBytes / 1024);
           dadosCampo.tx_total_kb = Math.round(s.txBytes / 1024);
-          if (ultimoRx !== null && ultimoTx !== null) {
-            const intervaloS = WG_STATS_INTERVAL_MS / 1000;
+          const agora = Date.now();
+          // Divide pelo tempo real: uma leitura que falhou ou foi pulada (in-flight) faz o
+          // delta cobrir mais de um intervalo. Contador menor que o anterior = tunel
+          // reiniciado; sem taxa nessa amostra em vez de um numero negativo.
+          if (ultimoRx !== null && ultimoTx !== null && ultimaAmostraMs !== null && agora > ultimaAmostraMs
+            && s.rxBytes >= ultimoRx && s.txBytes >= ultimoTx) {
+            const intervaloS = (agora - ultimaAmostraMs) / 1000;
             dadosCampo.rx_taxa_kbps = Math.round(((s.rxBytes - ultimoRx) / intervaloS) / 1024 * 8);
             dadosCampo.tx_taxa_kbps = Math.round(((s.txBytes - ultimoTx) / intervaloS) / 1024 * 8);
           }
           ultimoRx = s.rxBytes;
           ultimoTx = s.txBytes;
+          ultimaAmostraMs = agora;
         }
         if (s.handshakeAgoS !== null && s.handshakeAgoS > WG_STALE_HANDSHAKE_S) {
           logger.warn("wg", "handshake.velho", dadosCampo);
@@ -265,6 +277,8 @@ export function iniciarWgStatsWatchdog(provider: WgStatsProvider = getWgStats) {
           logger.warn("wg", "stats.erro", { erro: String((error as Error)?.message ?? error) });
         }
       })
+      // Outra fonte, entao vale mesmo quando a leitura do tunel falhou. Nunca rejeita.
+      .then(() => (generation === watchdogGeneration && timer !== null ? amostrarERegistrarFragmentos() : undefined))
       .finally(() => {
         if (generation === watchdogGeneration) watchdogInFlight = false;
       });
@@ -280,4 +294,5 @@ export function pararWgStatsWatchdog() {
   watchdogInFlight = false;
   ultimoRx = null;
   ultimoTx = null;
+  ultimaAmostraMs = null;
 }

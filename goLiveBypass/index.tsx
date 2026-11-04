@@ -127,7 +127,7 @@ const RTCConnectionStore: DiagnosticStore = findStoreLazy("RTCConnectionStore");
 
 const VIDEO_GUARD = "2026-08-video-guard";
 
-const PLUGIN_VERSION = "2.0.13";
+const PLUGIN_VERSION = "2.0.15";
 const PLUGIN_UPDATE_STATUS_POLL_INTERVAL_MS = 15_000;
 const PLUGIN_UPDATE_STATUS_TIMEOUT_MS = 10_000;
 const PLUGIN_UPDATE_CHECK_TIMEOUT_MS = 2 * 60_000 + 15_000;
@@ -2085,6 +2085,11 @@ const settings = definePluginSettings({
     protonAutoPing: {
         type: OptionType.BOOLEAN,
         description: "Escolher primeiro servidores Proton com menor latência.",
+        default: true
+    },
+    protonAvoidFreeMexico: {
+        type: OptionType.BOOLEAN,
+        description: "Evitar rotas grátis do México na escolha automática (Windows). Nelas, imagens e arquivos param de enviar cerca de 1 minuto depois de ativar.",
         default: true
     }
 });

@@ -11,6 +11,7 @@ import fs from "fs";
 import path from "path";
 import * as logger from "./logger";
 import { descreverQuicDoDiscord } from "./discord-args";
+import { metaFragmentos } from "./fragmentos-ip";
 import { caminhoLogWireSock, ipv6NoPerfil, metaDoLogWireSock } from "./wiresock-log";
 import * as logsDir from "./logsDir";
 import type { WgTunnelStats } from "./wgstats";
@@ -121,10 +122,11 @@ export function montarLog(
   // Sem a dedup, o report repetia a sessao inteira duas vezes.
   const guiLog = lerArquivoSeguro(path.join(logsDir.logsDir(dadosRaiz, process.platform), "gui.log"));
   if (guiLog) {
+    // Uma linha repetida vem com "(xN...)", que nao existe no arquivo; sem tirar o
+    // sufixo o indexOf dava -1 e o report repetia o arquivo inteiro.
     const primeiraDoRing = recente.split("\n").find((l) => l.trim() !== "");
-    const complemento = primeiraDoRing
-      ? guiLog.slice(0, guiLog.indexOf(primeiraDoRing))
-      : guiLog;
+    const inicioDoRing = primeiraDoRing ? guiLog.indexOf(logger.semRepeticao(primeiraDoRing)) : -1;
+    const complemento = inicioDoRing >= 0 ? guiLog.slice(0, inicioDoRing) : guiLog;
     if (complemento.trim()) {
       partes.push("=== gui.log (antes do ring buffer) ===");
       partes.push(complemento.trimEnd());
@@ -215,6 +217,9 @@ export function montarMeta(statusBypass: string, wgTunel?: WgTunnelStats): Recor
     ...(process.platform === "win32" ? { wiresock_perfil_ipv6: ipv6NoPerfil(lerPerfilWireSock()) } : {}),
     // Em que condicao o Discord foi aberto: "desativado_experimental" = com --disable-quic.
     ...(process.platform === "win32" ? { discord_quic: descreverQuicDoDiscord(lerSettingsDoApp()) } : {}),
+    // A rota estava fragmentando pacotes na hora do problema? Contadores de remontagem IP do
+    // Windows lidos pelo vigia do tunel (ver fragmentos-ip.ts): so numeros, sem veredito.
+    ...metaFragmentos(Date.now(), process.platform === "win32"),
     uptime_s: String(Math.round(process.uptime())),
     installs: String(installsDaSessao(settingsDir(app.getPath("home"))).length),
     // Diagnostico da deteccao do Discord — sem caminhos completos do usuario.

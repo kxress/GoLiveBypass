@@ -2,9 +2,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { definirLeitorFragmentos, metaFragmentos, reiniciarFragmentos } from "../electron/fragmentos-ip";
 import * as logger from "../electron/logger";
 import { registrarLogWireSock } from "../electron/wiresock-log";
 import { classifyWgReadiness, iniciarWgStatsWatchdog, parseWgDump, pararWgStatsWatchdog, WG_STATS_INTERVAL_MS } from "../electron/wgstats";
+
+// O vigia tambem le os fragmentos IP (fragmentos-ip.ts). Nos testes o netstat de verdade nunca
+// roda: no Windows a suite ficaria esperando por ele com o relogio falso.
+beforeEach(() => definirLeitorFragmentos(async () => null));
+afterEach(() => {
+  definirLeitorFragmentos(null);
+  reiniciarFragmentos();
+});
 
 // `wg show <iface> dump` real (campos tab-separated, ver electron/wgstats.ts).
 const linhaInterface = "PRIVKEYBASE64\tPUBKEYBASE64\t51820\t0";
@@ -134,6 +143,91 @@ describe("watchdog WireGuard", () => {
       await vi.advanceTimersByTimeAsync(WG_STATS_INTERVAL_MS);
       await vi.advanceTimersByTimeAsync(WG_STATS_INTERVAL_MS);
       expect(chamadas).toBe(2);
+    } finally {
+      pararWgStatsWatchdog();
+      vi.useRealTimers();
+    }
+  });
+
+  // 1 KiB/s = 8 kbps. Os contadores sobem nesse ritmo; a taxa registrada tem de ser 8
+  // mesmo quando uma leitura no meio falha e o delta cobre dois intervalos.
+  it("taxa usa o tempo real entre as amostras, nao o intervalo fixo", async () => {
+    vi.useFakeTimers();
+    logger._resetForTests();
+    const inicio = Date.now();
+    let chamadas = 0;
+    const provider = vi.fn(() => {
+      chamadas++;
+      if (chamadas === 2) return Promise.resolve({ ok: false, handshakeAgoS: null, rxBytes: null, txBytes: null, endpoint: null, error: "leitura falhou" });
+      const bytes = Math.round((Date.now() - inicio) / 1000) * 1024;
+      return Promise.resolve({ ok: true, handshakeAgoS: 1, rxBytes: bytes, txBytes: bytes, endpoint: "peer" });
+    });
+    try {
+      iniciarWgStatsWatchdog(provider);
+      await vi.advanceTimersByTimeAsync(WG_STATS_INTERVAL_MS * 3);
+      expect(chamadas).toBe(3);
+      const recent = logger.getRecent();
+      expect(recent).toContain("rx_taxa_kbps=8 tx_taxa_kbps=8");
+      expect(recent).not.toContain("rx_taxa_kbps=16");
+    } finally {
+      pararWgStatsWatchdog();
+      vi.useRealTimers();
+    }
+  });
+
+  it("contador que zerou (tunel reiniciado) nao vira taxa negativa", async () => {
+    vi.useFakeTimers();
+    logger._resetForTests();
+    const amostras = [500_000, 1_000];
+    const provider = vi.fn(() => {
+      const bytes = amostras.shift() ?? 1_000;
+      return Promise.resolve({ ok: true, handshakeAgoS: 1, rxBytes: bytes, txBytes: bytes, endpoint: "peer" });
+    });
+    try {
+      iniciarWgStatsWatchdog(provider);
+      await vi.advanceTimersByTimeAsync(WG_STATS_INTERVAL_MS * 2);
+      const recent = logger.getRecent();
+      expect(recent).toContain("rx_total_kb=1 ");
+      expect(recent).not.toMatch(/taxa_kbps=-/);
+    } finally {
+      pararWgStatsWatchdog();
+      vi.useRealTimers();
+    }
+  });
+
+  it("le os fragmentos IP ao ligar e a cada leitura, e recomeca a contagem num tunel novo", async () => {
+    vi.useFakeTimers();
+    let v4 = 100;
+    definirLeitorFragmentos(async () => ({ v4Fragmentos: (v4 += 7), v4Falhas: 0, v6Fragmentos: null }));
+    const provider = vi.fn(() => Promise.resolve({ ok: true, handshakeAgoS: 1, rxBytes: 10, txBytes: 10, endpoint: "peer" }));
+    try {
+      iniciarWgStatsWatchdog(provider);
+      await vi.advanceTimersByTimeAsync(WG_STATS_INTERVAL_MS * 2);
+      expect(metaFragmentos(Date.now(), true)).toMatchObject({
+        fragmentos_ip: "ok",
+        fragmentos_serie: "7,7",
+        fragmentos_v4_desde_tunel: "14",
+      });
+
+      pararWgStatsWatchdog();
+      iniciarWgStatsWatchdog(provider);
+      await vi.advanceTimersByTimeAsync(WG_STATS_INTERVAL_MS);
+      expect(metaFragmentos(Date.now(), true)).toMatchObject({ fragmentos_serie: "7", fragmentos_v4_desde_tunel: "7" });
+    } finally {
+      pararWgStatsWatchdog();
+      vi.useRealTimers();
+    }
+  });
+
+  it("le os fragmentos IP mesmo quando a leitura do tunel falha", async () => {
+    vi.useFakeTimers();
+    let v4 = 0;
+    definirLeitorFragmentos(async () => ({ v4Fragmentos: (v4 += 5), v4Falhas: 0, v6Fragmentos: null }));
+    const provider = vi.fn(() => Promise.reject(new Error("setns temporariamente indisponível")));
+    try {
+      iniciarWgStatsWatchdog(provider);
+      await vi.advanceTimersByTimeAsync(WG_STATS_INTERVAL_MS);
+      expect(metaFragmentos(Date.now(), true)).toMatchObject({ fragmentos_ip: "ok", fragmentos_serie: "5" });
     } finally {
       pararWgStatsWatchdog();
       vi.useRealTimers();
